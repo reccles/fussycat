@@ -1,0 +1,1 @@
+{"model":"gpt-oss:20b","messages":[{"role":"system","content":"Be terse."},{"role":"user","content":"What time is it?"}],"tools":[{"type":"function","function":{"name":"now","description":"Runs `date -u` and returns its output. Takes no arguments.","parameters":{"type":"object","properties":{}}}}],"stream":false,"truncate":false}

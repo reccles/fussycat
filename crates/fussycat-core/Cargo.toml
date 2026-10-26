@@ -1,0 +1,17 @@
+[package]
+name = "fussycat-core"
+description = "The fussycat domain: quilt, log, toolbox, run loop and ports. No I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Allowlist enforced by architecture eval S1: serde, serde_json, thiserror.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
