@@ -362,9 +362,9 @@ pub struct Mechanisms {
 }
 
 /// How fussycat runs, for every agent: the first stable block after the tools
-/// (D6; H3 and H7 in context/hypotheses.md). It's the CLI's because it talks
+/// (D6 in context/domain-design.spec.md). It's the CLI's because it talks
 /// about stdout. It explains only what the agent has: told about live blocks
-/// or tools it doesn't have, a model invents calls to them (H5, H6).
+/// or tools it doesn't have, a model invents calls to them.
 #[must_use]
 pub fn core_prompt(has: Mechanisms) -> String {
     const GENERAL: &str = include_str!("core.md");

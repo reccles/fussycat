@@ -86,7 +86,7 @@ fn every_agent_starts_with_the_core_prompt_then_the_authors_blocks() {
 
 #[test]
 fn the_core_prompt_says_how_a_run_works() {
-    // Spot checks, not the wording: the reply is the output (H3).
+    // Spot checks, not the wording: the reply is the output.
     let bare = core_prompt(Mechanisms::default());
     assert!(bare.contains("Your final reply is the output"));
 }
@@ -94,7 +94,7 @@ fn the_core_prompt_says_how_a_run_works() {
 #[test]
 fn the_core_prompt_explains_only_what_the_agent_has() {
     // Told about tools or live blocks it doesn't have, a model invents
-    // calls to them (H5, H6).
+    // calls to them.
     let bare = core_prompt(Mechanisms::default()).to_lowercase();
     assert!(!bare.contains("tool") && !bare.contains("live"));
     let all = core_prompt(Mechanisms {

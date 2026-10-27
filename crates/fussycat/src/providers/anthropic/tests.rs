@@ -7,7 +7,7 @@ use crate::providers::testkit::{
     paid_key, second_turn, wire_bytes, with_live,
 };
 
-/// The paid tests' model: the cheapest, and the one H11 compares with Venice.
+/// The paid tests' model: the cheapest.
 const TEST_MODEL: &str = "claude-haiku-5-5";
 
 fn wire(request: &Request) -> rig_core::http_client::Bytes {

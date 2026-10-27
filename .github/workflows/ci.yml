@@ -42,6 +42,11 @@ jobs:
         run: cargo fmt --check
       - name: clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      # S1-S10; S11 needs a list of private names, which a fork keeps itself.
+      - name: architecture evals
+        run: |
+          command -v rg >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep; }
+          scripts/arch-eval.sh
 
   # macOS too: it's the main dev platform and a release target, its dependency
   # tree differs (Security and SystemConfiguration frameworks), and its sh,
