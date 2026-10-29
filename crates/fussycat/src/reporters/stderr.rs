@@ -49,11 +49,15 @@ impl<W: Write> Reporter for StderrReporter<W> {
 
 fn turn_line(report: &TurnReport) -> String {
     let mut line = format!(
-        "turn {}: {}, {} tool call{}{}{}; {}",
+        "turn {}: {}, {} tool call{}{}{}{}; {}",
         report.turn,
         seconds(report.elapsed_ms),
         report.tool_calls,
         if report.tool_calls == 1 { "" } else { "s" },
+        match report.skipped_tool_calls {
+            0 => String::new(),
+            n => format!(" ({n} skipped: no turn follows)"),
+        },
         retries(report.retries, ", "),
         match report.stop {
             Some(Stop::OutputLimit) => ", cut off at the output limit",
@@ -298,6 +302,25 @@ mod tests {
         assert_eq!(
             turn_line(&report),
             "turn 1: 0.9s, 0 tool calls, cut off at the output limit; tokens in 629 (628 cached, 99%), out 2"
+        );
+    }
+
+    #[test]
+    fn skipped_tool_calls_say_why() {
+        let report = TurnReport {
+            turn: 10,
+            elapsed_ms: 900,
+            usage: usage(),
+            tool_calls: 0,
+            skipped_tool_calls: 2,
+            retries: 0,
+            stop: Some(Stop::End),
+            prefix: vec![],
+            live: vec![],
+        };
+        assert_eq!(
+            turn_line(&report),
+            "turn 10: 0.9s, 0 tool calls (2 skipped: no turn follows); tokens in 629 (628 cached, 99%), out 2"
         );
     }
 
