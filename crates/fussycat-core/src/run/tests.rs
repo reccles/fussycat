@@ -261,10 +261,10 @@ fn arch_run_always_terminates() {
     );
     assert_eq!(always_calls.requests().len(), 3);
 
-    let always_errors = FakeProvider::new(|_| Err(ProviderError("503".into())));
+    let always_errors = FakeProvider::new(|_| Err(ProviderError::new("503")));
     assert_eq!(
         run(&looping, &always_errors).0,
-        Outcome::Failed(Failure::Provider(ProviderError("503".into())))
+        Outcome::Failed(Failure::Provider(ProviderError::new("503")))
     );
 }
 

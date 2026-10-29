@@ -140,3 +140,17 @@ fn rig_judges_rate_limits_and_server_errors_transient_but_not_bad_requests() {
         assert_eq!(verdict(&replied(status)), Verdict::Fatal, "{status}");
     }
 }
+
+#[test]
+fn a_call_that_gives_up_keeps_its_retry_count() {
+    let unavailable = RigError::ProviderResponse(ProviderResponseError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+    ));
+    let error = given_up(&unavailable, GaveUp::OutOfRetries { retries: 3 });
+    assert_eq!(error.retries, 3);
+    assert!(
+        error.message.ends_with("(gave up after 3 retries)"),
+        "{error}"
+    );
+}

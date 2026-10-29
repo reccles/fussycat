@@ -52,8 +52,30 @@ pub struct Response {
 /// The provider failed after the adapter gave up (including its retries).
 /// The message names the cause, in the provider's own words if it gave any.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{0}")]
-pub struct ProviderError(pub String);
+#[error("{message}")]
+pub struct ProviderError {
+    pub message: String,
+    /// Failed attempts the adapter retried before it gave up. Counted like
+    /// `Response::retries`, so a flaky provider is visible even when the
+    /// call fails in the end.
+    pub retries: u32,
+}
+
+impl ProviderError {
+    /// A failure with no retries before it.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retries: 0,
+        }
+    }
+
+    /// The same failure, after `retries` failed attempts.
+    #[must_use]
+    pub fn after_retries(self, retries: u32) -> Self {
+        Self { retries, ..self }
+    }
+}
 
 pub trait Provider {
     fn complete(

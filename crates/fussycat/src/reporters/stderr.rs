@@ -230,7 +230,7 @@ mod tests {
             retries: 0,
         };
         let failed = Outcome::Failed(fussycat_core::run::Failure::Provider(
-            fussycat_core::provider::ProviderError("HTTP 404: no such model".into()),
+            fussycat_core::provider::ProviderError::new("HTTP 404: no such model"),
         ));
         assert_eq!(
             summary_line(&nothing, &failed),

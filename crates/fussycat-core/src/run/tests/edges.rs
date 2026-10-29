@@ -81,7 +81,7 @@ fn a_provider_failure_after_good_turns_keeps_their_reports_and_totals() {
         if turn < 3 {
             Ok(calls("now"))
         } else {
-            Err(ProviderError("503".into()))
+            Err(ProviderError::new("503"))
         }
     });
 
@@ -89,7 +89,7 @@ fn a_provider_failure_after_good_turns_keeps_their_reports_and_totals() {
 
     assert_eq!(
         outcome,
-        Outcome::Failed(Failure::Provider(ProviderError("503".into())))
+        Outcome::Failed(Failure::Provider(ProviderError::new("503")))
     );
     let turns: Vec<u32> = reports.turns.iter().map(|t| t.turn).collect();
     assert_eq!(turns[..2], [1, 2], "the good turns are still reported");

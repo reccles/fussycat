@@ -239,7 +239,7 @@ fn zero_turns_is_an_error() {
 #[test]
 fn outcomes_map_to_exit_codes() {
     assert_eq!(exit_code(&Outcome::Answered("hi".into())), 0);
-    let failed = Outcome::Failed(Failure::Provider(ProviderError("down".into())));
+    let failed = Outcome::Failed(Failure::Provider(ProviderError::new("down")));
     assert_eq!(exit_code(&failed), EXIT_FAILED);
     assert_eq!(
         exit_code(&Outcome::Exhausted(Limit::MaxTurns(3))),

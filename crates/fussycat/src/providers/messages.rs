@@ -99,9 +99,9 @@ fn replay(turn: &AssistantTurn) -> Result<Message, ProviderError> {
     let data = turn
         .provider_data
         .as_ref()
-        .ok_or_else(|| ProviderError("assistant turn has no provider data to replay".into()))?;
+        .ok_or_else(|| ProviderError::new("assistant turn has no provider data to replay"))?;
     serde_json::from_value(data.0.clone())
-        .map_err(|error| ProviderError(format!("cannot replay assistant turn: {error}")))
+        .map_err(|error| ProviderError::new(format!("cannot replay assistant turn: {error}")))
 }
 
 fn tool_result(
@@ -109,7 +109,7 @@ fn tool_result(
     call_ids: &HashMap<String, CallId>,
 ) -> Result<Message, ProviderError> {
     let id = call_ids.get(&result.call_id).cloned().ok_or_else(|| {
-        ProviderError(format!("tool result for unknown call `{}`", result.call_id))
+        ProviderError::new(format!("tool result for unknown call `{}`", result.call_id))
     })?;
     let content = match &result.output {
         Ok(output) => output.clone(),
@@ -119,13 +119,13 @@ fn tool_result(
 }
 
 fn tool_name(name: &str) -> Result<ToolName, ProviderError> {
-    ToolName::new(name).map_err(|error| ProviderError(format!("tool `{name}`: {error}")))
+    ToolName::new(name).map_err(|error| ProviderError::new(format!("tool `{name}`: {error}")))
 }
 
 /// The neutral response, after `retries` failed attempts. `cost_usd` is
 /// left unknown: only the provider knows whether it reports one.
 pub fn from_rig(response: &CompletionResponse, retries: u32) -> Result<Response, ProviderError> {
-    let stop = stop(response.stop())?;
+    let stop = stop(response.stop()).map_err(|error| error.after_retries(retries))?;
     let parts = response
         .choice
         .iter()
@@ -144,7 +144,10 @@ pub fn from_rig(response: &CompletionResponse, retries: u32) -> Result<Response,
         .message()
         .map(|message| serde_json::to_value(message).map(ProviderData))
         .transpose()
-        .map_err(|error| ProviderError(format!("cannot keep assistant turn: {error}")))?;
+        .map_err(|error| {
+            ProviderError::new(format!("cannot keep assistant turn: {error}"))
+                .after_retries(retries)
+        })?;
     Ok(Response {
         turn: AssistantTurn {
             parts,
@@ -163,12 +166,14 @@ pub fn from_rig(response: &CompletionResponse, retries: u32) -> Result<Response,
 fn stop(reason: StopReason) -> Result<Stop, ProviderError> {
     match reason {
         StopReason::Length => Ok(Stop::OutputLimit),
-        StopReason::Error(why) | StopReason::Aborted(why) => {
-            Err(ProviderError(format!("the model's turn failed: {why}")))
-        }
+        StopReason::Error(why) | StopReason::Aborted(why) => Err(ProviderError::new(format!(
+            "the model's turn failed: {why}"
+        ))),
         // `Stop`, `ToolUse`, and whatever rig adds that isn't a failure.
         other if !other.is_failure() => Ok(Stop::End),
-        other => Err(ProviderError(format!("the model's turn failed: {other:?}"))),
+        other => Err(ProviderError::new(format!(
+            "the model's turn failed: {other:?}"
+        ))),
     }
 }
 

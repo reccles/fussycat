@@ -105,7 +105,7 @@ async fn a_stalled_ollama_times_out_and_is_worth_a_retry() {
     );
 
     let error = ollama.complete(&first_turn()).await.unwrap_err();
-    assert!(error.0.contains("timed out"), "{error}");
+    assert!(error.message.contains("timed out"), "{error}");
     // Two 100 ms reads, but a loaded machine can add a dropped SYN's 1 s
     // retransmit to a connect. A hang would be the real READ_TIMEOUT
     // (minutes), so seconds still tell them apart.
