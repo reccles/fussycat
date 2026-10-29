@@ -110,3 +110,40 @@ fn a_provider_failure_after_good_turns_keeps_their_reports_and_totals() {
     assert_eq!(summary.usage.input, Some(300), "turns 1 and 2: 100 + 200");
     assert_eq!(summary.usage.cost_usd, Some(1.0));
 }
+
+/// A granted `now` that counts its calls, with no stable blocks.
+fn counted(budget: Budget) -> (Agent, Arc<FixedTool>) {
+    let now = Arc::new(FixedTool::new("now", "noon"));
+    let tools: Vec<Box<dyn Tool>> = vec![Box::new(SharedTool(Arc::clone(&now)))];
+    (budgeted(vec![], tools, budget), now)
+}
+
+#[test]
+fn tools_on_the_last_turn_never_run() {
+    let (agent, now) = counted(Budget::new(2).unwrap());
+    let always_calls = FakeProvider::new(|_| Ok(calls("now")));
+
+    let (outcome, reports) = run(&agent, &always_calls);
+
+    assert_eq!(outcome, Outcome::Exhausted(Limit::MaxTurns(2)));
+    assert_eq!(now.invocations.load(Ordering::SeqCst), 1, "turn 1's only");
+    let calls: Vec<_> = reports
+        .turns
+        .iter()
+        .map(|t| (t.tool_calls, t.skipped_tool_calls))
+        .collect();
+    assert_eq!(calls, [(1, 0), (0, 1)], "the skipped call is reported");
+}
+
+#[test]
+fn tools_on_the_turn_that_reaches_the_cost_limit_never_run() {
+    // Each fake turn costs $0.50: the second reaches a $1 limit.
+    let (agent, now) = counted(Budget::new(10).unwrap().with_max_cost(1.0).unwrap());
+    let always_calls = FakeProvider::new(|_| Ok(calls("now")));
+
+    let (outcome, reports) = run(&agent, &always_calls);
+
+    assert!(matches!(outcome, Outcome::Exhausted(Limit::MaxCost { .. })));
+    assert_eq!(now.invocations.load(Ordering::SeqCst), 1);
+    assert_eq!(reports.turns[1].skipped_tool_calls, 1);
+}

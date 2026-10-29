@@ -144,8 +144,9 @@ impl<'a> Run<'a> {
     }
 
     /// One turn (framework `turn`): check the budget, then one model call
-    /// and its tool calls. `None` when the model called tools and wants
-    /// another turn; otherwise how the run ended. Every turn is reported.
+    /// and its tool calls. `None` when the model called tools and another
+    /// turn will read their results; otherwise how the run ended. Every
+    /// turn is reported.
     pub async fn turn(
         &mut self,
         provider: &impl Provider,
@@ -155,11 +156,7 @@ impl<'a> Run<'a> {
         if let Some(stop) = self.over_budget() {
             return Some(stop);
         }
-        match self.call(provider, clock, reporter).await {
-            Ok(Some(answer)) => Some(Outcome::Answered(answer)),
-            Ok(None) => None,
-            Err(failure) => Some(Outcome::Failed(failure)),
-        }
+        self.call(provider, clock, reporter).await
     }
 
     /// The totals so far, for a run that took `elapsed_ms`.
@@ -197,16 +194,16 @@ impl<'a> Run<'a> {
         (self.turns >= max_turns).then_some(Outcome::Exhausted(Limit::MaxTurns(max_turns)))
     }
 
-    /// One model call and its tool calls. `Some(answer)` when the model
-    /// answered. A turn that fails the run is still counted and reported:
-    /// it was paid for. A call that fails outright is reported too, with its
-    /// retries, but isn't counted: there was no reply.
+    /// One model call and its tool calls, which run only if another turn
+    /// will read their results. A turn that fails the run is still counted
+    /// and reported: it was paid for. A call that fails outright is reported
+    /// too, with its retries, but isn't counted: there was no reply.
     async fn call(
         &mut self,
         provider: &impl Provider,
         clock: &impl Clock,
         reporter: &mut impl Reporter,
-    ) -> Result<Option<String>, Failure> {
+    ) -> Option<Outcome> {
         let started = clock.now();
         let (live_blocks, live_reports) = refresh(&mut self.live, clock);
         let request = Request {
@@ -224,17 +221,31 @@ impl<'a> Run<'a> {
                     elapsed_ms: clock.now().millis_since(started),
                     usage: Usage::default(),
                     tool_calls: 0,
+                    skipped_tool_calls: 0,
                     retries: error.retries,
                     stop: None,
                     prefix: prefix_fingerprints(&request),
                     live: live_reports,
                 });
-                return Err(error.into());
+                return Some(Outcome::Failed(error.into()));
             }
         };
         self.turns += 1;
-        let step = Step::of(&response, self.turns);
-        let results: Vec<ToolResult> = if step == Step::CallTools {
+        self.retries += response.retries;
+        self.usage = Some(
+            self.usage
+                .map_or(response.usage, |total| total.plus(response.usage)),
+        );
+        let (ended, calls_tools) = match Step::of(&response, self.turns) {
+            // When no turn follows, nothing would read the tools' results,
+            // so they don't run (a tool that sends mail would send it for
+            // nothing).
+            Step::CallTools => (self.over_budget(), true),
+            Step::Answer(answer) => (Some(Outcome::Answered(answer)), false),
+            Step::Fail(failure) => (Some(Outcome::Failed(failure)), false),
+        };
+        let asked = response.turn.tool_calls().count();
+        let results: Vec<ToolResult> = if calls_tools && ended.is_none() {
             response
                 .turn
                 .tool_calls()
@@ -253,26 +264,18 @@ impl<'a> Run<'a> {
         if tool_calls > 0 {
             self.quilt.append(Entry::ToolResults(results));
         }
-        self.retries += response.retries;
-        self.usage = Some(
-            self.usage
-                .map_or(response.usage, |total| total.plus(response.usage)),
-        );
         reporter.turn(&TurnReport {
             turn: self.turns,
             elapsed_ms: clock.now().millis_since(started),
             usage: response.usage,
             tool_calls,
+            skipped_tool_calls: if calls_tools { asked - tool_calls } else { 0 },
             retries: response.retries,
             stop: Some(response.stop),
             prefix: prefix_fingerprints(&request),
             live: live_reports,
         });
-        match step {
-            Step::CallTools => Ok(None),
-            Step::Answer(answer) => Ok(Some(answer)),
-            Step::Fail(failure) => Err(failure),
-        }
+        ended
     }
 }
 

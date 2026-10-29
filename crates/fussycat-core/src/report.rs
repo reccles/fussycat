@@ -92,7 +92,11 @@ pub struct TurnReport {
     pub turn: u32,
     pub elapsed_ms: u64,
     pub usage: Usage,
+    /// Tool calls that ran.
     pub tool_calls: usize,
+    /// Tool calls the model asked for that didn't run, because the budget
+    /// ends the run with this turn and nothing would read their results.
+    pub skipped_tool_calls: usize,
     /// Failed provider attempts retried before this turn's response.
     pub retries: u32,
     /// Why the reply ended: `end`, or `output_limit` when it was cut off.

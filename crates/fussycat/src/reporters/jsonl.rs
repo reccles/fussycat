@@ -96,6 +96,7 @@ mod tests {
                 cost_usd: None,
             },
             tool_calls: 1,
+            skipped_tool_calls: 0,
             retries: 1,
             stop: Some(Stop::OutputLimit),
             prefix: vec![Fingerprint {
@@ -109,7 +110,7 @@ mod tests {
             lines,
             [json!({
                 "type": "turn", "run": "1970-01-01T00:00:00Z", "model": "gpt-oss:20b",
-                "turn": 1, "elapsed_ms": 1200, "tool_calls": 1, "retries": 1,
+                "turn": 1, "elapsed_ms": 1200, "tool_calls": 1, "skipped_tool_calls": 0, "retries": 1,
                 "stop": "output_limit",
                 "usage": {"input": 167, "output": 69, "cache_read": 0, "cache_write": null, "cost_usd": null},
                 "prefix": [{"block": "(tools)", "hash": "07cc7607b4949e25"}],
