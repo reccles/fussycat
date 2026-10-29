@@ -149,10 +149,17 @@ fussycat reads it through a pipe:
 
 | Store | Key command |
 |---|---|
-| 1Password | `op read op://VAULT/ITEM/credential` |
 | pass | `pass show ITEM` |
 | macOS Keychain | `security find-generic-password -s ITEM -w` |
+| 1Password | `op read op://VAULT/ITEM/credential` |
+| A file only you can read (`chmod 600`) | `cat ~/.config/fussycat/anthropic-key` |
 
 ```sh
 export FUSSYCAT_ANTHROPIC_KEY_COMMAND='pass show anthropic'
 ```
+
+Unlike tools, the key command runs with your whole environment, so a store
+configured there works as it does in your shell, under cron too: a 1Password
+service account (`OP_SERVICE_ACCOUNT_TOKEN`), Vault (`VAULT_ADDR`,
+`VAULT_TOKEN`), or pass with its own `PASSWORD_STORE_DIR`. Set those in the
+environment, never in the command itself.

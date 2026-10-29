@@ -307,10 +307,13 @@ sandbox; it's built to be sandboxed.
   *private data*, *untrusted content* and *a way out* (curl, mail, git push).
   Any two are safe; all three let an injection exfiltrate. Every grant is on
   one command line, so a run can be checked by reading it.
-- **Children get a clean environment.** Every command fussycat runs starts
+- **Children get a clean environment.** Every tool and live command starts
   with only `PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TZ` and
   `TMPDIR`. A credential reaches a child only when a tool file names it in
-  `env`, for that one tool.
+  `env`, for that one tool. The one exception is deliberate: the key
+  command runs in the author's environment, because the author wrote it,
+  it runs once before the model is called, and its output is the secret
+  anyway. That's where secret stores keep their settings.
 - **Keys travel only through pipes.** A paid provider's key comes from a
   command named in `FUSSYCAT_<PROVIDER>_KEY_COMMAND`, which fussycat runs and
   reads from its stdout. The key is never in argv, the environment or a
