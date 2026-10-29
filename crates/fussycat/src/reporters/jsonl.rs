@@ -97,7 +97,7 @@ mod tests {
             },
             tool_calls: 1,
             retries: 1,
-            stop: Stop::OutputLimit,
+            stop: Some(Stop::OutputLimit),
             prefix: vec![Fingerprint {
                 block: "(tools)".into(),
                 hash: "07cc7607b4949e25".into(),

@@ -56,10 +56,14 @@ fn turn_line(report: &TurnReport) -> String {
         if report.tool_calls == 1 { "" } else { "s" },
         retries(report.retries, ", "),
         match report.stop {
-            Stop::End => "",
-            Stop::OutputLimit => ", cut off at the output limit",
+            Some(Stop::OutputLimit) => ", cut off at the output limit",
+            Some(Stop::End) | None => "",
         },
-        tokens(&report.usage)
+        match report.stop {
+            Some(_) => tokens(&report.usage),
+            // The error itself is on the summary's next line.
+            None => "the provider call failed".to_owned(),
+        }
     );
     if !report.live.is_empty() {
         let statuses: Vec<String> = report
@@ -260,7 +264,7 @@ mod tests {
             usage: usage(),
             tool_calls: 1,
             retries: 0,
-            stop: Stop::End,
+            stop: Some(Stop::End),
             prefix: vec![],
             live: vec![LiveReport {
                 block: BlockName::new("date -u").unwrap(),
@@ -285,13 +289,31 @@ mod tests {
             usage: usage(),
             tool_calls: 0,
             retries: 0,
-            stop: Stop::OutputLimit,
+            stop: Some(Stop::OutputLimit),
             prefix: vec![],
             live: vec![],
         };
         assert_eq!(
             turn_line(&report),
             "turn 1: 0.9s, 0 tool calls, cut off at the output limit; tokens in 629 (628 cached, 99%), out 2"
+        );
+    }
+
+    #[test]
+    fn a_failed_call_says_so_with_its_retries_and_no_tokens() {
+        let report = TurnReport {
+            turn: 3,
+            elapsed_ms: 93_000,
+            usage: Usage::default(),
+            tool_calls: 0,
+            retries: 3,
+            stop: None,
+            prefix: vec![],
+            live: vec![],
+        };
+        assert_eq!(
+            turn_line(&report),
+            "turn 3: 93.0s, 0 tool calls, 3 retries; the provider call failed"
         );
     }
 

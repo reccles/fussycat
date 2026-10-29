@@ -159,7 +159,8 @@ impl<P: Provider, C: Clock, R: Reporter> Run<'_, P, C, R> {
 
     /// One model call and its tool calls. `Some(answer)` when the model
     /// answered. A turn that fails the run is still counted and reported:
-    /// it was paid for.
+    /// it was paid for. A call that fails outright is reported too, with its
+    /// retries, but isn't counted: there was no reply.
     async fn turn(
         &mut self,
         quilt: &mut Quilt,
@@ -171,7 +172,25 @@ impl<P: Provider, C: Clock, R: Reporter> Run<'_, P, C, R> {
             max_output_tokens: self.agent.budget.max_output_tokens(),
             ..quilt.render(&self.agent.toolbox, live_blocks)
         };
-        let response = self.provider.complete(&request).await?;
+        let response = match self.provider.complete(&request).await {
+            Ok(response) => response,
+            Err(error) => {
+                // No reply, so not a turn the summary counts, but its
+                // retries and time are reported all the same.
+                self.retries += error.retries;
+                self.reporter.turn(&TurnReport {
+                    turn: self.turns + 1,
+                    elapsed_ms: self.clock.now().millis_since(started),
+                    usage: Usage::default(),
+                    tool_calls: 0,
+                    retries: error.retries,
+                    stop: None,
+                    prefix: prefix_fingerprints(&request),
+                    live: live_reports,
+                });
+                return Err(error.into());
+            }
+        };
         self.turns += 1;
         let step = Step::of(&response, self.turns);
         let results: Vec<ToolResult> = if step == Step::CallTools {
@@ -204,7 +223,7 @@ impl<P: Provider, C: Clock, R: Reporter> Run<'_, P, C, R> {
             usage: response.usage,
             tool_calls,
             retries: response.retries,
-            stop: response.stop,
+            stop: Some(response.stop),
             prefix: prefix_fingerprints(&request),
             live: live_reports,
         });

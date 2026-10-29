@@ -77,23 +77,36 @@ fn several_tool_calls_in_one_turn_report_in_call_order_with_their_ids() {
 #[test]
 fn a_provider_failure_after_good_turns_keeps_their_reports_and_totals() {
     let agent = agent(CountingSource::default(), now_tool(), 5);
+    let gave_up = ProviderError::new("503 (gave up after 3 retries)").after_retries(3);
     let provider = FakeProvider::new(|turn| {
         if turn < 3 {
             Ok(calls("now"))
         } else {
-            Err(ProviderError::new("503"))
+            Err(gave_up.clone())
         }
     });
 
     let (outcome, reports) = run(&agent, &provider);
 
+    assert_eq!(outcome, Outcome::Failed(Failure::Provider(gave_up.clone())));
+    let turns: Vec<_> = reports
+        .turns
+        .iter()
+        .map(|t| (t.turn, t.retries, t.stop))
+        .collect();
     assert_eq!(
-        outcome,
-        Outcome::Failed(Failure::Provider(ProviderError::new("503")))
+        turns,
+        [
+            (1, 1, Some(Stop::End)),
+            (2, 0, Some(Stop::End)),
+            (3, 3, None),
+        ],
+        "the failed call is reported too, with its retries and no reply"
     );
-    let turns: Vec<u32> = reports.turns.iter().map(|t| t.turn).collect();
-    assert_eq!(turns[..2], [1, 2], "the good turns are still reported");
+    assert_eq!(reports.turns[2].usage, Usage::default(), "nothing reported");
     let (summary, _) = reports.finished.unwrap();
+    assert_eq!(summary.turns, 2, "turns with a reply");
+    assert_eq!(summary.retries, 4, "1 + 0, and the failed call's 3");
     assert_eq!(summary.usage.input, Some(300), "turns 1 and 2: 100 + 200");
     assert_eq!(summary.usage.cost_usd, Some(1.0));
 }

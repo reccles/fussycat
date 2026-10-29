@@ -241,7 +241,10 @@ one is `Exhausted` (exit 3), a normal outcome.
   guess, and never 0 because a model looks local.
 - **Retries:** failed provider attempts the adapter retried, per turn and per
   run, so a flaky provider shows up as retries rather than an unexplained
-  slow run. The adapter owns the mechanism; the core only counts.
+  slow run. The adapter owns the mechanism; the core only counts. A call
+  that fails after retrying still adds its retries, and gets a turn report
+  of its own (`stop` null, usage unreported); the summary's `turns` counts
+  only turns with a reply.
 - **Fingerprint:** a stable hash of each block above the log, so cross-run
   cache breaks are a `jq` job over `--metrics`. Wire bytes are pinned
   separately, by each adapter's golden test.
