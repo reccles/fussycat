@@ -16,6 +16,8 @@ mod answers;
 /// The loop at its edges: the last turn, two limits at once, several
 /// calls in one turn, a failure mid-run.
 mod edges;
+/// A host driving a run one turn at a time.
+mod host;
 
 /// Answers with whatever `reply` returns for turn n (1-based), reports
 /// usage of `100 * n` input tokens, and remembers every request.
