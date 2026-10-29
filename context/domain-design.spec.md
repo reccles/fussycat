@@ -243,6 +243,16 @@ one is `Exhausted` (exit 3), a normal outcome.
 | `--command-timeout` | 60 s | any command fussycat runs; at the limit its whole process group is killed and it fails like any failing command |
 | `--max-output-tokens` | the provider's | each reply; a reply cut off at the limit fails the run, so a low limit is never silent |
 
+The limits are checked at the start of every turn, cost first, so the cost
+limit wins when both are reached on one turn. They're checked again after
+the reply and before its tool calls: if no turn will follow, the tools don't
+run, because nothing would read their results and a side-effecting tool
+would fire for nothing (R3). The turn report counts them as
+`skipped_tool_calls`. Telling the model it's on its last turn was the
+alternative; it's left out for now because the model may call tools anyway,
+so they'd still have to be skipped. It could come later as a note in the
+live tail.
+
 ### Observation
 
 - **Usage:** input, output, cache-read and cache-write tokens, exactly as the
