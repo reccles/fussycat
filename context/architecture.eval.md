@@ -52,11 +52,15 @@ cargo test --workspace               # includes the behavioural evals
 cargo test --workspace arch_         # only the behavioural evals
 scripts/arch-eval.sh                 # structural checks S1–S11, silent on pass
 cargo test --workspace -- --ignored   # PAID provider tests: run on purpose, never in CI
+for s in ask shell-tools context-blocks tool-files limits-and-exit-codes \
+  metrics isolation providers; do examples/$s.sh >/dev/null || echo "FAIL $s"; done
 ```
 
-CI runs all but the paid tests on every pull request, plus gitleaks over the
-whole history. Anything that needs a live model stays a local check: a
-model's answers would make CI flaky.
+CI runs all but the paid tests and the [examples](../examples/README.md) on
+every pull request, plus gitleaks over the whole history. Anything that
+needs a live model stays a local check: a model's answers would make CI
+flaky. The examples need Ollama, and skip their paid parts without a key
+command.
 
 Then the review questions (R1–R7).
 
@@ -127,4 +131,4 @@ needs a reason in the PR body.
 - **R6. Unixy?** Answer on stdout, diagnostics on stderr, files only when a
   flag asks for them, and composes with a pipe.
 - **R7. Shows itself?** Does every user-visible change ship or update an
-  example in `examples/`?
+  example in [`examples/`](../examples/README.md)?

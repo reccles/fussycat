@@ -1,0 +1,55 @@
+#!/bin/sh
+# pigglywiggly: a made-up recipe scaler for the fussycat examples. Its name
+# says nothing about what it does, on purpose: the model has to be told.
+set -eu
+
+usage() {
+  cat <<'USAGE'
+Usage: pigglywiggly -p RECIPE -n SERVINGS
+       pigglywiggly --list
+
+Scale a recipe to SERVINGS people and print the shopping list.
+
+Options:
+  -p RECIPE    the recipe to scale (see --list)
+  -n SERVINGS  how many people to feed, 1-50
+  --list       list the recipes pigglywiggly knows
+  --help       show this help
+USAGE
+}
+
+recipe='' servings=''
+while [ $# -gt 0 ]; do
+  case $1 in
+    --help) usage; exit 0 ;;
+    --list) printf 'pancakes\nporridge\n'; exit 0 ;;
+    # Count first: on dash a failed shift is fatal, before any || can run.
+    -p) [ $# -ge 2 ] || { usage >&2; exit 2; }; recipe=$2; shift 2 ;;
+    -n) [ $# -ge 2 ] || { usage >&2; exit 2; }; servings=$2; shift 2 ;;
+    *) printf 'pigglywiggly: unknown option %s\n' "$1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+case $servings in
+  '' | *[!0-9]*) printf 'pigglywiggly: -n needs a number of servings\n' >&2; exit 2 ;;
+esac
+if [ "$servings" -lt 1 ] || [ "$servings" -gt 50 ]; then
+  printf 'pigglywiggly: -n must be 1-50\n' >&2
+  exit 2
+fi
+
+# Per serving: quantity, unit, ingredient.
+case $recipe in
+  pancakes) per_serving='50 g flour
+100 ml milk
+0.5 eggs
+1 pinch smoked-sea-salt' ;;
+  porridge) per_serving='40 g oats
+200 ml milk
+1 tsp honey' ;;
+  *) printf 'pigglywiggly: no recipe called "%s" (try --list)\n' "$recipe" >&2; exit 1 ;;
+esac
+
+printf '%s for %s:\n' "$recipe" "$servings"
+printf '%s\n' "$per_serving" |
+  awk -v n="$servings" '{ q = $1 * n; $1 = ""; printf "  %g%s\n", q, $0 }'

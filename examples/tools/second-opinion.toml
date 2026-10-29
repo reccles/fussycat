@@ -1,0 +1,21 @@
+# A child fussycat as a tool: the model asks another model a question.
+#
+# Every tool runs with a clean environment (PATH, HOME, locale and the like),
+# so the settings the child needs (the key command, never a key) are
+# passed on by name. Nothing
+# else is: not your GITHUB_TOKEN, not your AWS keys.
+name = "second_opinion"
+description = """
+Asks another model a question and returns its answer. Use it to check a
+fact you're unsure of.
+"""
+# fussycat reads its task on stdin. `sh -c` with "$1" hands the question over
+# as data, never as code: the model's text can't change the script.
+run = ["sh", "-c", 'printf "%s\n" "$1" | fussycat', "second_opinion", "{question}"]
+env = ["FUSSYCAT_MODEL", "FUSSYCAT_OLLAMA_URL", "FUSSYCAT_VENICE_KEY_COMMAND"]
+
+[input.question]
+type = "string"
+description = "The question, self-contained: the other model sees nothing else."
+# Safe here: "$1" is data to printf, never an option, so "-3 squared?" is fine.
+allow_leading_dash = true

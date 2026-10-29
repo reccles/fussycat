@@ -1,0 +1,22 @@
+# The narrow shape: one specific use, with typed inputs. Each {placeholder}
+# is replaced by exactly one argument, checked against its [input] first,
+# and no shell is involved, so model text can't become a command. Nor an
+# option: a string can't start with `-` unless its input sets
+# `allow_leading_dash = true`, and a `pattern` must match the whole value.
+name = "scale_recipe"
+description = """
+Scales a recipe to a number of servings and prints the shopping list.
+Use it whenever the user asks how much of something to buy or cook.
+"""
+run = ["pigglywiggly", "-p", "{recipe}", "-n", "{servings}"]
+
+[input.recipe]
+type = "string"
+description = "The recipe to scale."
+enum = ["pancakes", "porridge"]
+
+[input.servings]
+type = "integer"
+description = "How many people to feed."
+minimum = 1
+maximum = 50

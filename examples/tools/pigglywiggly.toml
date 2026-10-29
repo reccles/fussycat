@@ -1,0 +1,9 @@
+# The broad shape: the model reads pigglywiggly's own help and builds the
+# arguments itself. That grants *any* pigglywiggly invocation, options
+# included, which is fine for a program that only reads and prints. For
+# anything with side effects, use typed inputs instead (see
+# scale-recipe.toml).
+name = "pigglywiggly"
+description = "A recipe scaler that prints shopping lists."
+help = ["pigglywiggly", "--help"]
+run = ["pigglywiggly", "{args...}"]

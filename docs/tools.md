@@ -87,3 +87,7 @@ allow_leading_dash = true   # safe: "$1" is never an option to printf
 The child fussycat needs to know which model to use and how to get its key,
 so `env` passes those two along, and nothing else. Pass key *commands*,
 never keys: the child reads its key through a pipe, just like its parent.
+
+All three are in [`examples/tools/`](../examples/tools/), with pigglywiggly
+itself, and [`examples/tool-files.sh`](../examples/tool-files.sh) and
+[`examples/isolation.sh`](../examples/isolation.sh) run them.

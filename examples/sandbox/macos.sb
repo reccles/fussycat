@@ -1,0 +1,19 @@
+;; A macOS sandbox for fussycat: sandbox-exec -D HOME="$HOME" -f macos.sb fussycat ...
+;; fussycat doesn't sandbox itself; it's built to be sandboxed. It writes only
+;; to stdout and calls only its provider, so a profile this strict costs it
+;; nothing, and every tool it runs inherits the same limits.
+;;
+;; sandbox-exec is deprecated by Apple but still works. On Linux, bwrap or
+;; firejail play the same part; anywhere, a container does.
+(version 1)
+(allow default)
+
+;; Network: the provider only. Here that's Ollama on port 11434. Profiles
+;; match by IP and port, not by hostname, so allowing Venice means allowing
+;; port 443 to everyone; to limit by host, send traffic through a proxy.
+(deny network-outbound)
+(allow network-outbound (literal "/private/var/run/mDNSResponder")) ; DNS
+(allow network-outbound (remote ip "*:11434"))
+
+;; Files: nothing under your home directory can be changed.
+(deny file-write* (subpath (param "HOME")))

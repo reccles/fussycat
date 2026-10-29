@@ -61,6 +61,8 @@ echo "What time is it in UTC?" | fussycat \
   metrics, providers and keys.
 - [Tool files](docs/tools.md): tools with typed inputs that model text can't
   escape.
+- [Examples](examples/README.md): runnable scripts, one feature at a time,
+  from a first question to a sandboxed run.
 - [The Agent Quilt pattern](docs/agent-quilt.md) behind it, and
   [the framework](docs/agent-quilt-framework.md) it implements.
 - [Why it exists](context/INTENT.md), [the domain model](context/domain-design.spec.md)

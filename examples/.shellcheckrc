@@ -1,0 +1,5 @@
+# Follow `. lib.sh` into the shared helpers.
+external-sources=true
+source-path=SCRIPTDIR
+# lib.sh's fussycat() is a pass-through wrapper; calling it without arguments is fine.
+disable=SC2119
