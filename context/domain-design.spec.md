@@ -67,7 +67,11 @@ classDiagram
         budget: Budget
     }
     class Task { text }
-    class Run { +execute() Outcome }
+    class Run {
+        +start(Agent, Task) Run
+        +append(Entry)
+        +turn() Outcome?
+    }
     class Quilt {
         +layout() Vec~Block~
         +render(toolbox) Request
@@ -141,6 +145,14 @@ One model call, following the framework's `turn` operation: check the
 budget, refresh every live block, render, call the provider, append the
 reply to the log, run any tool calls and append their results, report. A
 tool failure is a *result* the model sees, not a run failure.
+
+The turn and the run are separate operations. `Run::start` reads the stable
+sources and starts the log; `run.turn(provider, clock, reporter)` is one
+turn, ending in nothing (the model called tools: go on) or an Outcome. The
+ports are lent to each turn, not held by the run. `execute` is the CLI's
+run: `start`, then `turn` until an Outcome, then the summary. A host that
+keeps a run between events does the same with `run.append` between turns,
+one turn in flight at a time (`turn` takes the run by `&mut`).
 
 ### Quilt, blocks and kinds
 
