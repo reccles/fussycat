@@ -103,7 +103,10 @@ A run always ends, which matters when it's cron watching, not you.
 once the provider-reported cost reaches USD, and `--max-output-tokens` caps
 each reply. Tool output is cut, visibly, at `--max-tool-output` (32 KiB),
 and `--command-timeout` (60 s) kills a tool or `--live` command that hangs.
-Hitting a limit exits 3, so the script around it can tell.
+Hitting a limit exits 3, so the script around it can tell. On the turn
+that reaches `--max-turns` or `--max-cost`, the model's tool calls don't
+run: no turn follows to read their results, so a tool that sends or pushes
+never fires for nothing. `-v` and `--metrics` show them as skipped.
 
 ## Metrics
 

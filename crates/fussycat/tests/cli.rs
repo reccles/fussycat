@@ -183,6 +183,32 @@ fn the_answer_is_stdout_and_nothing_else() {
     assert_eq!(stderr(&output), "");
 }
 
+/// Stdout is the answer plus one trailing newline, never two, and nothing
+/// at all when the run doesn't answer.
+#[test]
+fn stdout_gets_one_trailing_newline_and_nothing_without_an_answer() {
+    let (url, server) = fake_ollama("It's noon.\n");
+    let output = run(answering(&url), "What time is it?");
+    server.join().unwrap();
+    assert_eq!(output.stdout, b"It's noon.\n", "a newline isn't doubled");
+
+    let (url, server) = fake_ollama_replying(vec![serde_json::json!({
+        "role": "assistant", "content": "",
+        "tool_calls": [{"function": {"name": "now", "arguments": {}}}]})]);
+    let mut command = answering(&url);
+    command.args(["--tool", "now=echo noon", "--max-turns", "1"]);
+    let output = run(command, "What time is it?");
+    server.join().unwrap();
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    assert_eq!(output.stdout, b"", "exhausted: no answer");
+
+    let (url, server) = fake_ollama("");
+    let output = run(answering(&url), "What time is it?");
+    server.join().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(output.stdout, b"", "failed: no answer");
+}
+
 /// A tool and a live command that both hang: each is killed at the
 /// timeout, the model sees why, and the run goes on to its answer.
 #[test]

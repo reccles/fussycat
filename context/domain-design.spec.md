@@ -67,7 +67,11 @@ classDiagram
         budget: Budget
     }
     class Task { text }
-    class Run { +execute() Outcome }
+    class Run {
+        +start(Agent, Task) Run
+        +append(Entry)
+        +turn() Outcome?
+    }
     class Quilt {
         +layout() Vec~Block~
         +render(toolbox) Request
@@ -141,6 +145,14 @@ One model call, following the framework's `turn` operation: check the
 budget, refresh every live block, render, call the provider, append the
 reply to the log, run any tool calls and append their results, report. A
 tool failure is a *result* the model sees, not a run failure.
+
+The turn and the run are separate operations. `Run::start` reads the stable
+sources and starts the log; `run.turn(provider, clock, reporter)` is one
+turn, ending in nothing (the model called tools: go on) or an Outcome. The
+ports are lent to each turn, not held by the run. `execute` is the CLI's
+run: `start`, then `turn` until an Outcome, then the summary. A host that
+keeps a run between events does the same with `run.append` between turns,
+one turn in flight at a time (`turn` takes the run by `&mut`).
 
 ### Quilt, blocks and kinds
 
@@ -231,6 +243,16 @@ one is `Exhausted` (exit 3), a normal outcome.
 | `--command-timeout` | 60 s | any command fussycat runs; at the limit its whole process group is killed and it fails like any failing command |
 | `--max-output-tokens` | the provider's | each reply; a reply cut off at the limit fails the run, so a low limit is never silent |
 
+The limits are checked at the start of every turn, cost first, so the cost
+limit wins when both are reached on one turn. They're checked again after
+the reply and before its tool calls: if no turn will follow, the tools don't
+run, because nothing would read their results and a side-effecting tool
+would fire for nothing (R3). The turn report counts them as
+`skipped_tool_calls`. Telling the model it's on its last turn was the
+alternative; it's left out for now because the model may call tools anyway,
+so they'd still have to be skipped. It could come later as a note in the
+live tail.
+
 ### Observation
 
 - **Usage:** input, output, cache-read and cache-write tokens, exactly as the
@@ -241,7 +263,10 @@ one is `Exhausted` (exit 3), a normal outcome.
   guess, and never 0 because a model looks local.
 - **Retries:** failed provider attempts the adapter retried, per turn and per
   run, so a flaky provider shows up as retries rather than an unexplained
-  slow run. The adapter owns the mechanism; the core only counts.
+  slow run. The adapter owns the mechanism; the core only counts. A call
+  that fails after retrying still adds its retries, and gets a turn report
+  of its own (`stop` null, usage unreported); the summary's `turns` counts
+  only turns with a reply.
 - **Fingerprint:** a stable hash of each block above the log, so cross-run
   cache breaks are a `jq` job over `--metrics`. Wire bytes are pinned
   separately, by each adapter's golden test.

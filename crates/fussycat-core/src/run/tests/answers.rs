@@ -53,7 +53,7 @@ fn an_answer_cut_off_at_the_output_limit_is_a_failure_not_an_answer() {
         !text.contains("twelve"),
         "the partial answer stays out: {text}"
     );
-    assert_eq!(reporter.turns[0].stop, Stop::OutputLimit);
+    assert_eq!(reporter.turns[0].stop, Some(Stop::OutputLimit));
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn tool_calls_cut_off_at_the_output_limit_never_run() {
     assert_eq!(provider.requests().len(), 1, "no further model call");
     assert_eq!(
         (reporter.turns[0].tool_calls, reporter.turns[0].stop),
-        (0, Stop::OutputLimit)
+        (0, Some(Stop::OutputLimit))
     );
 }
 
@@ -94,8 +94,8 @@ fn a_whole_answer_reports_how_each_turn_ended() {
     let (outcome, reporter) = run(&agent, &provider);
 
     assert_eq!(outcome, Outcome::Answered("noon".into()));
-    let stops: Vec<Stop> = reporter.turns.iter().map(|turn| turn.stop).collect();
-    assert_eq!(stops, [Stop::End, Stop::End]);
+    let stops: Vec<_> = reporter.turns.iter().map(|turn| turn.stop).collect();
+    assert_eq!(stops, [Some(Stop::End), Some(Stop::End)]);
 }
 
 #[test]

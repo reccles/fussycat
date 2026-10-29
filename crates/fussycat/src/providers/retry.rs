@@ -72,6 +72,16 @@ impl fmt::Display for GaveUp {
     }
 }
 
+impl GaveUp {
+    pub fn retries(self) -> u32 {
+        match self {
+            Self::Fatal { retries }
+            | Self::OutOfRetries { retries }
+            | Self::WaitTooLong { retries, .. } => retries,
+        }
+    }
+}
+
 fn plural(retries: u32) -> String {
     match retries {
         1 => "1 retry".into(),
@@ -141,7 +151,13 @@ where
 {
     with_retries(policy, attempt, verdict, tokio::time::sleep)
         .await
-        .map_err(|(error, gave_up)| ProviderError(format!("{}{gave_up}", describe(&error))))
+        .map_err(|(error, gave_up)| given_up(&error, gave_up))
+}
+
+/// The error the run sees: the cause, why fussycat stopped trying, and the
+/// retries it took, which the run counts like a success's.
+fn given_up(error: &RigError, gave_up: GaveUp) -> ProviderError {
+    ProviderError::new(format!("{}{gave_up}", describe(error))).after_retries(gave_up.retries())
 }
 
 #[cfg(test)]

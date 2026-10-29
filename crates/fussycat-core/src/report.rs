@@ -92,11 +92,16 @@ pub struct TurnReport {
     pub turn: u32,
     pub elapsed_ms: u64,
     pub usage: Usage,
+    /// Tool calls that ran.
     pub tool_calls: usize,
+    /// Tool calls the model asked for that didn't run, because the budget
+    /// ends the run with this turn and nothing would read their results.
+    pub skipped_tool_calls: usize,
     /// Failed provider attempts retried before this turn's response.
     pub retries: u32,
     /// Why the reply ended: `end`, or `output_limit` when it was cut off.
-    pub stop: Stop,
+    /// `None` (`null`) when the call failed and there was no reply.
+    pub stop: Option<Stop>,
     pub prefix: Vec<Fingerprint>,
     pub live: Vec<LiveReport>,
 }
@@ -104,10 +109,12 @@ pub struct TurnReport {
 /// The whole run: the `dd`-style line.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RunSummary {
+    /// Turns with a reply. A failed provider call has a turn report but
+    /// isn't counted here.
     pub turns: u32,
     pub elapsed_ms: u64,
     pub usage: Usage,
-    /// Every turn's retries, summed.
+    /// Every turn's retries, summed, a failed call's included.
     pub retries: u32,
 }
 

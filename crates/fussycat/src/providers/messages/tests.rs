@@ -58,15 +58,15 @@ fn a_turn_the_provider_failed_is_a_provider_error() {
     );
     assert_eq!(
         refused,
-        Err(ProviderError(
-            "the model's turn failed: I can't help with that".into()
+        Err(ProviderError::new(
+            "the model's turn failed: I can't help with that"
         ))
     );
     let filtered = from_rig(&reply(json!({"finish_reason": "content_filter"})), 0);
     assert!(
         filtered
             .as_ref()
-            .is_err_and(|error| error.0.contains("content_filter")),
+            .is_err_and(|error| error.message.contains("content_filter")),
         "{filtered:?}"
     );
 }
@@ -81,7 +81,7 @@ fn a_result_for_an_unknown_call_is_an_error() {
     }]));
     assert_eq!(
         to_rig(&request).unwrap_err(),
-        ProviderError("tool result for unknown call `ghost`".into())
+        ProviderError::new("tool result for unknown call `ghost`")
     );
 }
 
