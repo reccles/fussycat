@@ -1,6 +1,6 @@
-//! Every child fussycat starts: built with a clean environment, then run with
-//! a timeout and a bounded read, so no command can hang a run or fill its
-//! memory.
+//! Every child fussycat starts: built with a clean environment (or, for the
+//! key command alone, fussycat's own), then run with a timeout and a bounded
+//! read, so no command can hang a run or fill its memory.
 
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -23,9 +23,20 @@ pub const INHERITED: &[&str] = &[
 
 /// A command for `program` with no stdin and a clean environment: only
 /// [`INHERITED`] and the `passed` names, taken from fussycat's own. Every
-/// child fussycat starts is built here (architecture eval S10).
+/// child the model can set off is built here (architecture eval S10).
 pub fn isolated(program: &str, passed: &[String]) -> Command {
     isolated_from(program, passed, |name| std::env::var_os(name))
+}
+
+/// A command for `program` with no stdin and all of fussycat's environment.
+/// Only for the key command: the author wrote it, it runs once before the
+/// model is called, and its stdout is the secret anyway, so isolating it
+/// protects nothing and breaks every secret store configured through the
+/// environment (`OP_SERVICE_ACCOUNT_TOKEN`, `VAULT_ADDR`, `PASSWORD_STORE_DIR`).
+pub fn inheriting(program: &str) -> Command {
+    let mut command = Command::new(program);
+    command.stdin(Stdio::null());
+    command
 }
 
 fn isolated_from(

@@ -4,15 +4,32 @@ use fussycat_core::quilt::{Source, SourceError};
 use fussycat_core::toolbox::{Tool, ToolSpec};
 
 use super::is_tool_name;
-use super::process::{Ended, Limits, capture, isolated, output_of};
+use super::process::{Ended, Limits, capture, inheriting, isolated, output_of};
 
-/// Run the author's `command` with `sh -c`, within `limits`. With
-/// [`read_key`], the only place fussycat starts a shell (architecture eval
-/// S9), and never with model text.
-fn run(command: &str, limits: Limits) -> Result<String, String> {
-    let mut shell = isolated("sh", &[]);
+/// Whose environment a shell gets: the two trust levels, side by side.
+#[derive(Clone, Copy)]
+enum Env {
+    /// Tools and live commands: the model decides when they run, so they
+    /// get only the basics (architecture eval S10).
+    Clean,
+    /// The key command: the author's, run once before the model is called.
+    Authors,
+}
+
+/// `sh -c command`, the only shell fussycat starts (architecture eval S9),
+/// and never with model text.
+fn sh(command: &str, env: Env) -> std::process::Command {
+    let mut shell = match env {
+        Env::Clean => isolated("sh", &[]),
+        Env::Authors => inheriting("sh"),
+    };
     shell.arg("-c").arg(command);
-    output_of(shell, command, limits)
+    shell
+}
+
+/// Run the author's `command` in a clean environment, within `limits`.
+fn run(command: &str, limits: Limits) -> Result<String, String> {
+    output_of(sh(command, Env::Clean), command, limits)
 }
 
 /// The most of a key command's output that's kept: far more than any key.
@@ -32,10 +49,12 @@ const KEY_LIMIT: usize = 64 * 1024;
 /// may be waiting on a person (Touch ID, a pinentry prompt), so it stays in
 /// fussycat's process group, where it can reach the terminal. A cron job's
 /// key command shouldn't need a person; `timeout(1)` bounds the whole run.
+///
+/// It runs with fussycat's whole environment, so a store configured there
+/// (`OP_SERVICE_ACCOUNT_TOKEN`, `VAULT_ADDR`, `PASSWORD_STORE_DIR`) works,
+/// under cron too.
 pub fn read_key(variable: &str, command: &str) -> Result<String, String> {
-    let mut shell = isolated("sh", &[]);
-    shell.arg("-c").arg(command);
-    let output = capture(shell, KEY_LIMIT, None)
+    let output = capture(sh(command, Env::Authors), KEY_LIMIT, None)
         .map_err(|error| format!("{variable}: could not run sh: {error}"))?;
     match output.ended {
         Ended::Exited(status) if status.success() => {}
@@ -215,6 +234,20 @@ mod tests {
         // for a credential. Nothing can pass it to a `NAME=CMD` tool.
         assert!(std::env::var_os("CARGO_MANIFEST_DIR").is_some());
         let peek = "echo ${CARGO_MANIFEST_DIR:-unset}";
+        assert_eq!(
+            tool(&format!("e={peek}")).invoke(&json!({})),
+            Ok("unset\n".into())
+        );
+        assert_eq!(source(peek).fetch(), Ok("unset\n".into()));
+    }
+
+    /// The key command is the author's, so it sees fussycat's environment,
+    /// where secret stores keep their settings; tools still don't.
+    #[test]
+    fn the_key_command_sees_the_authors_environment() {
+        let expected = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let peek = "echo ${CARGO_MANIFEST_DIR:-unset}";
+        assert_eq!(read_key(VARIABLE, peek), Ok(expected));
         assert_eq!(
             tool(&format!("e={peek}")).invoke(&json!({})),
             Ok("unset\n".into())
