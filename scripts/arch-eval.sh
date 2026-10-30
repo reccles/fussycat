@@ -49,7 +49,7 @@ s8_llm_library_stays_in_providers() {
 }
 
 s9_shell_only_in_the_shell_adapter() {
-  rg -n '(Command::new|isolated)\("(sh|bash|zsh|dash)"' crates/fussycat/src | grep -v '/system/shell\.rs:'
+  rg -n '(Command::new|isolated|inheriting)\("(sh|bash|zsh|dash)"' crates/fussycat/src | grep -v '/system/shell\.rs:'
 }
 s10_children_start_only_in_process() {
   rg -n 'Command::new|std::process::Command' crates/fussycat/src | grep -v '/system/process\.rs:'

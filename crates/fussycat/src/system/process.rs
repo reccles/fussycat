@@ -4,7 +4,11 @@
 
 use std::ffi::OsString;
 use std::io::{self, Read};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, ExitStatus, Stdio};
+
+/// What [`isolated`] and [`inheriting`] build, for code that adds to one
+/// before it runs: the type, never a way to start a child elsewhere (S10).
+pub use std::process::Command;
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;

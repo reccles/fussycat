@@ -88,8 +88,8 @@ impl Budget {
     }
 
     /// Ask a thinking model to reason at `level`. Unset, the provider picks
-    /// per model, and some pick their highest (Venice runs `qwen-3-8-27b` at
-    /// `xhigh`), so it's part of the budget: reasoning tokens are paid for.
+    /// per model, and some pick their highest, so it's part of the budget:
+    /// reasoning tokens are paid for.
     #[must_use]
     pub fn with_reasoning(self, level: Reasoning) -> Self {
         Self {

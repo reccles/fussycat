@@ -4,7 +4,7 @@ use fussycat_core::quilt::{Source, SourceError};
 use fussycat_core::toolbox::{Tool, ToolSpec};
 
 use super::is_tool_name;
-use super::process::{Ended, Limits, capture, inheriting, isolated, output_of};
+use super::process::{Command, Ended, Limits, capture, inheriting, isolated, output_of};
 
 /// Whose environment a shell gets: the two trust levels, side by side.
 #[derive(Clone, Copy)]
@@ -18,7 +18,7 @@ enum Env {
 
 /// `sh -c command`, the only shell fussycat starts (architecture eval S9),
 /// and never with model text.
-fn sh(command: &str, env: Env) -> std::process::Command {
+fn sh(command: &str, env: Env) -> Command {
     let mut shell = match env {
         Env::Clean => isolated("sh", &[]),
         Env::Authors => inheriting("sh"),
