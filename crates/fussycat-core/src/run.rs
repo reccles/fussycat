@@ -208,6 +208,7 @@ impl<'a> Run<'a> {
         let (live_blocks, live_reports) = refresh(&mut self.live, clock);
         let request = Request {
             max_output_tokens: self.agent.budget.max_output_tokens(),
+            reasoning: self.agent.budget.reasoning(),
             ..self.quilt.render(&self.agent.toolbox, live_blocks)
         };
         let response = match provider.complete(&request).await {

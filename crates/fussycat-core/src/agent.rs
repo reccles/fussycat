@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::provider::Reasoning;
 use crate::quilt::{BlockDecl, Kind};
 use crate::toolbox::Toolbox;
 
@@ -32,6 +33,7 @@ pub struct Budget {
     cost_usd: Option<f64>,
     tool_output: usize,
     output_tokens: Option<u64>,
+    reasoning: Option<Reasoning>,
 }
 
 impl Budget {
@@ -85,6 +87,17 @@ impl Budget {
         })
     }
 
+    /// Ask a thinking model to reason at `level`. Unset, the provider picks
+    /// per model, and some pick their highest (Venice runs `qwen-3-8-27b` at
+    /// `xhigh`), so it's part of the budget: reasoning tokens are paid for.
+    #[must_use]
+    pub fn with_reasoning(self, level: Reasoning) -> Self {
+        Self {
+            reasoning: Some(level),
+            ..self
+        }
+    }
+
     #[must_use]
     pub fn max_turns(self) -> u32 {
         self.turns
@@ -104,6 +117,11 @@ impl Budget {
     pub fn max_output_tokens(self) -> Option<u64> {
         self.output_tokens
     }
+
+    #[must_use]
+    pub fn reasoning(self) -> Option<Reasoning> {
+        self.reasoning
+    }
 }
 
 impl Default for Budget {
@@ -113,6 +131,7 @@ impl Default for Budget {
             cost_usd: None,
             tool_output: Self::DEFAULT_MAX_TOOL_OUTPUT,
             output_tokens: None,
+            reasoning: None,
         }
     }
 }
@@ -268,6 +287,18 @@ mod tests {
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             assert!(budget.with_max_cost(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn reasoning_is_left_to_the_provider_unless_set() {
+        use crate::provider::Reasoning;
+        assert_eq!(Budget::default().reasoning(), None);
+        let budget = Budget::default().with_reasoning(Reasoning::Low);
+        assert_eq!(budget.reasoning(), Some(Reasoning::Low));
+        for level in Reasoning::ALL {
+            assert_eq!(level.as_str().parse(), Ok(level));
+        }
+        assert!("none".parse::<Reasoning>().is_err(), "one spelling: `off`");
     }
 
     #[test]

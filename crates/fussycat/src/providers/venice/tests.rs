@@ -4,9 +4,10 @@ use serde_json::{Value, json};
 use super::*;
 use crate::providers::testkit::{
     NO_RETRIES, assert_golden, assert_wire_contract, capped_at, chat_view, first_turn, paid_key,
-    serve_once, wire_bytes,
+    reasoning_at, refusal, serve_once, wire_bytes,
 };
 use fussycat_core::log::Part;
+use fussycat_core::provider::Reasoning;
 
 /// The paid test's model: cheap, with priced cache reads.
 const TEST_MODEL: &str = "claude-haiku-5-5";
@@ -56,6 +57,30 @@ fn routes_the_cache_by_the_prefix() {
 fn caps_the_reply_only_when_the_budget_does() {
     assert_eq!(wire_json(&first_turn()).get("max_tokens"), None);
     assert_eq!(wire_json(&capped_at(1_000))["max_tokens"], json!(1_000));
+}
+
+/// Unset, Venice picks the effort per model (`qwen-3-8-27b` defaults to
+/// `xhigh`); set, it goes on the wire as `reasoning_effort`.
+#[test]
+fn sends_reasoning_effort_only_when_asked() {
+    assert_eq!(wire_json(&first_turn()).get("reasoning_effort"), None);
+    assert_eq!(
+        wire_json(&reasoning_at(Reasoning::Low))["reasoning_effort"],
+        json!("low")
+    );
+    assert_eq!(
+        wire_json(&reasoning_at(Reasoning::Off))["reasoning_effort"],
+        json!("none")
+    );
+}
+
+/// Each model takes its own levels (`qwen-3-8-27b`: none, low, medium,
+/// xhigh, as `/models` lists): one it lacks fails unsent.
+#[test]
+fn a_level_the_model_lacks_is_refused_unsent() {
+    let qwen = |http| Venice::with_http("not-a-real-key".into(), "qwen-3-8-27b", NO_RETRIES, http);
+    let error = refusal(qwen, &reasoning_at(Reasoning::High));
+    assert!(error.contains("no `high` effort level"), "{error}");
 }
 
 #[test]
@@ -252,6 +277,7 @@ fn paid_every_stable_block_reaches_the_model() {
         )],
         live: vec![],
         max_output_tokens: None,
+        reasoning: None,
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

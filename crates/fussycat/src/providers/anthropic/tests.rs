@@ -4,8 +4,9 @@ use super::*;
 use crate::providers::ProviderName;
 use crate::providers::testkit::{
     NO_RETRIES, assert_golden, assert_wire_contract, capped_at, first_turn, messages_view,
-    paid_key, second_turn, wire_bytes, with_live,
+    paid_key, reasoning_at, second_turn, wire_bytes, with_live,
 };
+use fussycat_core::provider::Reasoning;
 
 /// The paid tests' model: the cheapest.
 const TEST_MODEL: &str = "claude-haiku-5-5";
@@ -27,6 +28,22 @@ fn wire_json(request: &Request) -> Value {
 
 fn max_tokens(model: &str, request: &Request) -> Value {
     serde_json::from_slice::<Value>(&wire_for(model, request)).unwrap()["max_tokens"].clone()
+}
+
+/// Unset, the model's own default; set, adaptive thinking at that effort,
+/// or thinking disabled.
+#[test]
+fn reasoning_goes_on_the_wire_as_thinking_and_effort() {
+    let unset = wire_json(&first_turn());
+    assert_eq!(unset.get("thinking"), None);
+    assert_eq!(unset.get("output_config"), None);
+    let low = wire_json(&reasoning_at(Reasoning::Low));
+    assert_eq!(low["thinking"], json!({"type": "adaptive"}));
+    assert_eq!(low["output_config"], json!({"effort": "low"}));
+    assert_eq!(
+        wire_json(&reasoning_at(Reasoning::Off))["thinking"],
+        json!({"type": "disabled"})
+    );
 }
 
 #[test]
