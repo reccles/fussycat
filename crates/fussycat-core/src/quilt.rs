@@ -110,8 +110,8 @@ impl Quilt {
     /// The provider-neutral request for this turn. Deterministic: the same
     /// quilt, toolbox and live blocks always render the same request (L3),
     /// and only `live` can vary between two renders of one log (P3). The
-    /// reply's length is the budget's business, not the quilt's: the Run
-    /// sets `max_output_tokens`.
+    /// reply's length and reasoning are the budget's business, not the
+    /// quilt's: the Run sets `max_output_tokens` and `reasoning`.
     #[must_use]
     pub fn render(&self, toolbox: &Toolbox, live: Vec<Block>) -> Request {
         Request {
@@ -120,6 +120,7 @@ impl Quilt {
             log: self.log.entries().to_vec(),
             live,
             max_output_tokens: None,
+            reasoning: None,
         }
     }
 }

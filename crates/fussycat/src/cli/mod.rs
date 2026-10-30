@@ -11,6 +11,7 @@ use std::time::Duration;
 use clap::Parser;
 use fussycat_core::agent::{Agent, Budget, DeclarationError, Task};
 use fussycat_core::clock::Clock;
+use fussycat_core::provider::Reasoning;
 use fussycat_core::quilt::{BlockDecl, BlockName, Kind, Source, Text};
 use fussycat_core::run::{Outcome, execute};
 use fussycat_core::toolbox::{Tool, Toolbox};
@@ -128,6 +129,13 @@ struct Args {
     /// to 64000 (anthropic, which needs one).
     #[arg(long, value_name = "N")]
     max_output_tokens: Option<u64>,
+
+    /// How hard a thinking model reasons before it answers: off, minimal,
+    /// low, medium, high, xhigh or max. Each provider takes its own subset
+    /// per model; one it doesn't take fails the run before anything is sent
+    /// (exit 1). Unset: the provider's default, which varies by model.
+    #[arg(long, value_name = "LEVEL")]
+    reasoning_effort: Option<Reasoning>,
 
     /// Append a JSON line per turn, and one for the run, to FILE.
     #[arg(long, value_name = "FILE")]
@@ -414,6 +422,9 @@ fn declarations(args: &Args) -> Result<(Vec<BlockDecl>, Budget), DeclarationErro
     }
     if let Some(tokens) = args.max_output_tokens {
         budget = budget.with_max_output_tokens(tokens)?;
+    }
+    if let Some(level) = args.reasoning_effort {
+        budget = budget.with_reasoning(level);
     }
     Ok((blocks, budget))
 }

@@ -3,8 +3,10 @@ use serde_json::{Value, json};
 use super::*;
 use crate::providers::testkit::NO_RETRIES;
 use crate::providers::testkit::{
-    assert_golden, assert_wire_contract, capped_at, chat_view, first_turn, second_turn, wire_bytes,
+    assert_golden, assert_wire_contract, capped_at, chat_view, first_turn, reasoning_at, refusal,
+    second_turn, wire_bytes,
 };
+use fussycat_core::provider::Reasoning;
 
 fn wire(request: &Request) -> rig_core::http_client::Bytes {
     wire_bytes(
@@ -22,6 +24,41 @@ fn wire(request: &Request) -> rig_core::http_client::Bytes {
 
 fn wire_json(request: &Request) -> Value {
     serde_json::from_slice(&wire(request)).unwrap()
+}
+
+fn ollama(http: rig_core::http_client::DynHttpClient) -> Ollama {
+    Ollama::with_http(
+        "http://ollama.invalid:11434",
+        "gpt-oss:20b",
+        NO_RETRIES,
+        http,
+    )
+}
+
+/// Ollama's `think`: `false`, or a level. gpt-oss follows the levels
+/// but can't stop thinking; Qwen 3 can, but treats every level as on.
+#[test]
+fn reasoning_goes_on_the_wire_as_think() {
+    assert_eq!(wire_json(&first_turn()).get("think"), None);
+    assert_eq!(
+        wire_json(&reasoning_at(Reasoning::High))["think"],
+        json!("high")
+    );
+    let qwen =
+        |http| Ollama::with_http("http://ollama.invalid:11434", "qwen3:8b", NO_RETRIES, http);
+    let off: Value =
+        serde_json::from_slice(&wire_bytes(qwen, &reasoning_at(Reasoning::Off))).unwrap();
+    assert_eq!(off["think"], json!(false));
+}
+
+/// Ollama has no `xhigh` or `minimal`: the run fails before anything is
+/// sent, rather than think at a level nobody asked for.
+#[test]
+fn a_level_ollama_lacks_is_refused_unsent() {
+    let error = refusal(ollama, &reasoning_at(Reasoning::XHigh));
+    assert!(error.contains("no `xhigh` thinking level"), "{error}");
+    let error = refusal(ollama, &reasoning_at(Reasoning::Off));
+    assert!(error.contains("cannot be turned off"), "{error}");
 }
 
 #[test]

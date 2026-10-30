@@ -80,7 +80,7 @@ classDiagram
     class LiveBlock { source, fetched_at, freshness }
     class Log { +append(Entry) }
     class Toolbox { +specs() +call(ToolCall) ToolResult }
-    class Budget { max_turns, max_cost, max_tool_output }
+    class Budget { max_turns, max_cost, max_tool_output, max_output_tokens, reasoning }
     class TurnReport
     Agent --> "1..*" Block : declares
     Agent --> Toolbox : grants build
@@ -242,6 +242,7 @@ one is `Exhausted` (exit 3), a normal outcome.
 | `--max-tool-output` | 32 KiB | each tool result and live block, cut visibly with a note giving the true size |
 | `--command-timeout` | 60 s | any command fussycat runs; at the limit its whole process group is killed and it fails like any failing command |
 | `--max-output-tokens` | the provider's | each reply; a reply cut off at the limit fails the run, so a low limit is never silent |
+| `--reasoning-effort` | the provider's | how hard a thinking model reasons: `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Not a limit that ends the run, but in the Budget because reasoning tokens are paid output. The adapter maps it to its provider's control, and a level the model doesn't take fails the run before anything is sent, rather than reason at a level nobody asked for. |
 
 The limits are checked at the start of every turn, cost first, so the cost
 limit wins when both are reached on one turn. They're checked again after
@@ -252,6 +253,11 @@ would fire for nothing (R3). The turn report counts them as
 alternative; it's left out for now because the model may call tools anyway,
 so they'd still have to be skipped. It could come later as a note in the
 live tail.
+
+Unset, `--reasoning-effort` is the provider's choice, and that varies by
+model, not provider: Venice runs `qwen-3-8-27b` at `xhigh`, its highest,
+and most of its other Qwen models at `low`. So the flag is how an author
+makes a run's cost not depend on a default they can't see.
 
 ### Observation
 

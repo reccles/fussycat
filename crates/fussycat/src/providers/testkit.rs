@@ -47,6 +47,20 @@ pub fn wire_bytes<P: Provider>(
     capture.0.lock().unwrap().pop().expect("a request body")
 }
 
+/// Why `connect`'s provider refused `request` before sending anything.
+pub fn refusal<P: Provider>(connect: impl FnOnce(DynHttpClient) -> P, request: &Request) -> String {
+    let capture = Capture::default();
+    let provider = connect(super::http().with_middleware(capture.clone()));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let error = runtime
+        .block_on(provider.complete(request))
+        .expect_err("refused");
+    assert!(capture.0.lock().unwrap().is_empty(), "nothing is sent");
+    error.message
+}
+
 pub fn first_turn() -> Request {
     Request {
         tools: vec![ToolSpec {
@@ -61,6 +75,7 @@ pub fn first_turn() -> Request {
         log: vec![Entry::Task("What time is it?".into())],
         live: vec![],
         max_output_tokens: None,
+        reasoning: None,
     }
 }
 
@@ -68,6 +83,14 @@ pub fn first_turn() -> Request {
 pub fn capped_at(tokens: u64) -> Request {
     Request {
         max_output_tokens: Some(tokens),
+        ..first_turn()
+    }
+}
+
+/// [`first_turn`], asking the model to reason at `level`.
+pub fn reasoning_at(level: fussycat_core::provider::Reasoning) -> Request {
+    Request {
+        reasoning: Some(level),
         ..first_turn()
     }
 }

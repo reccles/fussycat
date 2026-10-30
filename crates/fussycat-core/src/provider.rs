@@ -24,6 +24,70 @@ pub struct Request {
     /// The longest reply to ask for, in tokens (`Budget`). `None` leaves it
     /// to the adapter's default for its provider.
     pub max_output_tokens: Option<u64>,
+    /// How hard a thinking model should think (`Budget`). `None` leaves it
+    /// to the provider, which picks per model.
+    pub reasoning: Option<Reasoning>,
+}
+
+/// How much a thinking model reasons before it answers, lowest first. The
+/// adapter maps it to its provider's own control, and refuses a level the
+/// model doesn't take rather than send something else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Reasoning {
+    Off,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    XHigh,
+    Max,
+}
+
+impl Reasoning {
+    pub const ALL: [Self; 7] = [
+        Self::Off,
+        Self::Minimal,
+        Self::Low,
+        Self::Medium,
+        Self::High,
+        Self::XHigh,
+        Self::Max,
+    ];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::XHigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
+}
+
+impl std::fmt::Display for Reasoning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("reasoning effort must be one of off, minimal, low, medium, high, xhigh or max, got `{0}`")]
+pub struct BadReasoning(String);
+
+impl std::str::FromStr for Reasoning {
+    type Err = BadReasoning;
+
+    fn from_str(level: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|known| known.as_str() == level)
+            .ok_or_else(|| BadReasoning(level.to_owned()))
+    }
 }
 
 /// Why the model's reply ended, as the provider reported it.

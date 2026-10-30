@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use fussycat_core::log::{AssistantTurn, Entry, Part, ProviderData};
-use fussycat_core::provider::{ProviderError, Request, Response, Stop};
+use fussycat_core::provider::{ProviderError, Reasoning, Request, Response, Stop};
 use fussycat_core::quilt::Block;
 use fussycat_core::report::Usage;
 use fussycat_core::toolbox::{ToolCall, ToolResult};
@@ -73,6 +73,9 @@ pub fn to_rig(request: &Request) -> Result<CompletionRequest, ProviderError> {
     let mut rig_request = CompletionRequest::from(history);
     rig_request.cache_points = cache_points;
     rig_request.max_tokens = request.max_output_tokens;
+    if let Some(level) = request.reasoning {
+        rig_request = rig_request.reasoning(reasoning(level));
+    }
     rig_request.tools = request
         .tools
         .iter()
@@ -116,6 +119,22 @@ fn tool_result(
         Err(error) => format!("error: {error}"),
     };
     Ok(Message::tool_result(id, tool_name(&result.name)?, content))
+}
+
+/// rig maps the level to each provider's own control (Venice's
+/// `reasoning_effort`, Ollama's `think`, Anthropic's thinking), and fails
+/// the call before it's sent when the model doesn't take it.
+fn reasoning(level: Reasoning) -> rig_core::completion::Reasoning {
+    use rig_core::completion::{Effort, Reasoning as Rig};
+    match level {
+        Reasoning::Off => Rig::Off,
+        Reasoning::Minimal => Effort::Minimal.into(),
+        Reasoning::Low => Effort::Low.into(),
+        Reasoning::Medium => Effort::Medium.into(),
+        Reasoning::High => Effort::High.into(),
+        Reasoning::XHigh => Effort::XHigh.into(),
+        Reasoning::Max => Effort::Max.into(),
+    }
 }
 
 fn tool_name(name: &str) -> Result<ToolName, ProviderError> {

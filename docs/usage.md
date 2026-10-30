@@ -108,6 +108,23 @@ that reaches `--max-turns` or `--max-cost`, the model's tool calls don't
 run: no turn follows to read their results, so a tool that sends or pushes
 never fires for nothing. `-v` and `--metrics` show them as skipped.
 
+### Reasoning effort
+
+A thinking model's reasoning is output you pay for, and left alone the
+provider picks how much, per model: Venice runs `qwen-3-8-27b` at `xhigh`,
+its highest. `--reasoning-effort LEVEL` sets it: `off`, `minimal`, `low`,
+`medium`, `high`, `xhigh` or `max`.
+
+| Provider | Sends | Takes |
+|---|---|---|
+| Venice | `reasoning_effort` (`off` is `none`) | the model's `reasoningEffortOptions` in Venice's [`/models`](https://api.venice.ai/api/v1/models?type=text) |
+| Ollama | `think` (`off` is `false`) | `off`, `low`, `medium`, `high`, `max`, as the model allows: gpt-oss can't turn thinking off |
+| Anthropic | adaptive thinking at that effort, or thinking disabled | `low` to `max`; no `minimal` |
+
+A level the model doesn't take fails the run (exit 1) before anything is
+sent. Taking a level isn't the same as honouring it: on Ollama, Qwen 3 only
+turns thinking on or off, whatever the level.
+
 ## Metrics
 
 Every run tells you what it cost, in the provider's own numbers, never an

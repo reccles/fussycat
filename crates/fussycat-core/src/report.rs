@@ -195,6 +195,7 @@ mod tests {
             log: vec![],
             live: vec![],
             max_output_tokens: None,
+            reasoning: None,
         };
         let names: Vec<_> = prefix_fingerprints(&request)
             .into_iter()
@@ -215,6 +216,7 @@ mod tests {
             log: vec![crate::log::Entry::Task("hi".into())],
             live: vec![block("date", "monday")],
             max_output_tokens: None,
+            reasoning: None,
         };
         let mut turn_two = turn_one.clone();
         turn_two.log.push(crate::log::Entry::Task("more".into()));

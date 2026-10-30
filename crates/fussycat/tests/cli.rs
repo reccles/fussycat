@@ -66,6 +66,28 @@ fn a_missing_key_command_is_a_usage_error() {
     assert!(stderr(&output).contains("FUSSYCAT_VENICE_KEY_COMMAND"));
 }
 
+/// The author's level reaches the provider (Ollama's `think`); a word
+/// that isn't a level is a usage error, before any call.
+#[test]
+fn reasoning_effort_reaches_the_provider() {
+    let (url, server) = fake_ollama("391");
+    let mut command = answering(&url);
+    command.args(["--reasoning-effort", "low"]);
+    let output = run(command, "What is 17*23?");
+    let asked = server.join().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let body: serde_json::Value = serde_json::from_str(&asked[0]).unwrap();
+    assert_eq!(body["think"], "low", "{body}");
+
+    let output = run(fussycat(&["--reasoning-effort", "hard"]), "hi");
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("off, minimal, low"),
+        "{}",
+        stderr(&output)
+    );
+}
+
 #[test]
 fn a_failing_key_command_is_a_failure() {
     let mut command = fussycat(&["--model", "venice:m"]);
