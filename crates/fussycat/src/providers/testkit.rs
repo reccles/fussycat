@@ -110,6 +110,44 @@ pub fn paid_key(provider: super::ProviderName) -> String {
     crate::system::read_key(env, &command).unwrap_or_else(|error| panic!("{error}"))
 }
 
+/// A provider on loopback that answers one request with `reply`, a JSON
+/// body. Its URL, and a handle that gives the request body it was sent.
+pub fn serve_once(reply: &Value) -> (String, std::thread::JoinHandle<String>) {
+    use std::io::{BufRead, BufReader, Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let reply = reply.to_string();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut request = BufReader::new(stream);
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            request.read_line(&mut line).unwrap();
+            if let Some((name, value)) = line.split_once(':')
+                && name.eq_ignore_ascii_case("content-length")
+            {
+                length = value.trim().parse().unwrap();
+            }
+            if line.trim().is_empty() {
+                break;
+            }
+        }
+        let mut body = vec![0; length];
+        request.read_exact(&mut body).unwrap();
+        write!(
+            request.into_inner(),
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+             content-length: {}\r\nconnection: close\r\n\r\n{reply}",
+            reply.len()
+        )
+        .unwrap();
+        String::from_utf8(body).unwrap()
+    });
+    (url, server)
+}
+
 /// Golden bytes: a rig upgrade that changes what goes on the wire fails
 /// here first, not as a silent cache miss. Review the diff, then
 /// regenerate deliberately with `UPDATE_GOLDEN=1 cargo test`.

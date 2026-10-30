@@ -4,8 +4,9 @@ use serde_json::{Value, json};
 use super::*;
 use crate::providers::testkit::{
     NO_RETRIES, assert_golden, assert_wire_contract, capped_at, chat_view, first_turn, paid_key,
-    wire_bytes,
+    serve_once, wire_bytes,
 };
+use fussycat_core::log::Part;
 
 /// The paid test's model: cheap, with priced cache reads.
 const TEST_MODEL: &str = "claude-haiku-5-5";
@@ -81,6 +82,97 @@ fn cost_is_what_venice_reported() {
         reported_cost(&reply(&json!({}))),
         None,
         "unreported is unknown"
+    );
+}
+
+/// A Venice reply as a thinking model writes it (`venice:qwen-3-8-27b`):
+/// the reasoning in `reasoning_content`, the answer in `content`.
+fn thinking_reply(content: &str) -> Value {
+    json!({
+        "id": "chatcmpl-1", "object": "chat.completion", "created": 1_761_696_000,
+        "model": TEST_MODEL,
+        "choices": [{
+            "index": 0, "finish_reason": "stop",
+            "message": {
+                "role": "assistant",
+                "reasoning_content": "The user wants the time. I have no clock tool.",
+                "content": content,
+            },
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 12, "total_tokens": 22},
+    })
+}
+
+/// Venice at `url`, as [`Venice::new`] builds it.
+fn venice_at(url: &str) -> Venice {
+    let client = OpenAIConfig::with_key(&VENICE, "not-a-real-key")
+        .with_base_url(url)
+        .connect(crate::providers::http());
+    Venice {
+        model: client.chat(TEST_MODEL),
+        retry: NO_RETRIES,
+    }
+}
+
+fn complete(reply: &Value) -> Response {
+    let (url, server) = serve_once(reply);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let response = runtime.block_on(venice_at(&url).complete(&first_turn()));
+    server.join().unwrap();
+    response.unwrap()
+}
+
+/// `-v` and the log show a thinking model's reasoning, and it's replayed
+/// on later turns: it arrives as thinking, before the answer.
+#[test]
+fn reasoning_content_is_thinking() {
+    let response = complete(&thinking_reply("I can't tell the time."));
+    assert_eq!(
+        response.turn.parts,
+        [
+            Part::Thinking("The user wants the time. I have no clock tool.".into()),
+            Part::Text("I can't tell the time.".into()),
+        ]
+    );
+}
+
+/// The failure that was seen: all the output went to reasoning, and
+/// `content` came back empty. The reasoning still shows.
+#[test]
+fn reasoning_with_no_answer_still_shows() {
+    let response = complete(&thinking_reply(""));
+    assert!(
+        response.turn.parts.contains(&Part::Thinking(
+            "The user wants the time. I have no clock tool.".into()
+        )),
+        "{:?}",
+        response.turn.parts
+    );
+}
+
+/// The reasoning goes back to Venice on the next turn, in the field it
+/// arrived in, so the model keeps its own train of thought.
+#[test]
+fn reasoning_is_replayed_on_the_next_turn() {
+    let turn = complete(&thinking_reply("Checking.")).turn;
+    let mut next = first_turn();
+    next.log.push(fussycat_core::log::Entry::Assistant(turn));
+    next.log
+        .push(fussycat_core::log::Entry::Task("And now?".into()));
+    let wire = wire_json(&next);
+    let assistant = wire["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|message| message["role"] == "assistant")
+        .expect("the assistant turn is replayed");
+    assert_eq!(
+        assistant["reasoning_content"],
+        json!("The user wants the time. I have no clock tool."),
+        "{assistant}"
     );
 }
 
