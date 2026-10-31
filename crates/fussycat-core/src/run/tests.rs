@@ -530,8 +530,11 @@ fn an_outcome_reason_is_structured_by_kind() {
         serde_json::json!({"kind": "max_cost", "cap_usd": 1.0, "spent_usd": 1.5})
     );
     assert_eq!(
-        reason(&Outcome::Failed(Failure::NoAnswer { turn: 2 })),
-        serde_json::json!({"kind": "no_answer", "turn": 2})
+        reason(&Outcome::Failed(Failure::NoAnswer {
+            turn: 2,
+            tools: false
+        })),
+        serde_json::json!({"kind": "no_answer", "turn": 2, "tools": false})
     );
     assert_eq!(
         reason(&Outcome::Failed(Failure::Provider(

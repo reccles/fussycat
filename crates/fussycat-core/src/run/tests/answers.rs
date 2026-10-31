@@ -19,7 +19,13 @@ fn an_empty_reply_is_not_an_answer() {
 
         let (outcome, reporter) = run(&agent, &provider);
 
-        assert_eq!(outcome, Outcome::Failed(Failure::NoAnswer { turn: 1 }));
+        assert_eq!(
+            outcome,
+            Outcome::Failed(Failure::NoAnswer {
+                turn: 1,
+                tools: true
+            })
+        );
         assert!(
             outcome_text(&outcome).starts_with("the model gave no answer"),
             "{outcome:?}"
@@ -34,7 +40,7 @@ fn an_empty_reply_is_not_an_answer() {
 /// so the author can tell it from a provider that sent nothing.
 #[test]
 fn reasoning_with_no_reply_says_the_model_reasoned() {
-    let agent = agent(CountingSource::default(), now_tool(), 5);
+    let agent = agent(CountingSource::default(), vec![], 5);
     let provider =
         FakeProvider::new(|_| Ok(thinks("The user wants the time.\nI could say noon.\n")));
 
@@ -44,6 +50,37 @@ fn reasoning_with_no_reply_says_the_model_reasoned() {
         outcome_text(&outcome),
         "the model gave no answer: on turn 1 it reasoned (43 characters, ending \
          \"I could say noon.\") but wrote no reply; another reasoning effort may get one"
+    );
+}
+
+/// With tools granted, an empty reply may be a tool call the provider
+/// couldn't read and dropped (some local models lose about half), so the
+/// error says so, rather than only blaming the reasoning effort.
+#[test]
+fn an_empty_reply_with_tools_granted_mentions_a_dropped_call() {
+    let agent = agent(CountingSource::default(), now_tool(), 5);
+    let reasoned = FakeProvider::new(|_| Ok(thinks("Let me make the tool call now.")));
+    let text = outcome_text(&run(&agent, &reasoned).0);
+    assert!(
+        text.ends_with(
+            "but wrote no reply; with tools granted, the provider may have dropped a tool \
+             call it couldn't read (if the reasoning ends by making one, try another model), \
+             or another reasoning effort may get one"
+        ),
+        "{text}"
+    );
+    let silent = FakeProvider::new(|_| Ok(says("")));
+    let text = outcome_text(&run(&agent, &silent).0);
+    assert_eq!(
+        text,
+        "the model gave no answer: its reply on turn 1 was empty; with tools granted, \
+         the provider may have dropped a tool call it couldn't read"
+    );
+    let bare = agent_with(vec![], vec![], 5);
+    let text = outcome_text(&run(&bare, &FakeProvider::new(|_| Ok(says("")))).0);
+    assert_eq!(
+        text,
+        "the model gave no answer: its reply on turn 1 was empty"
     );
 }
 
@@ -72,7 +109,13 @@ fn an_empty_reply_after_tool_calls_is_still_not_an_answer() {
 
     let (outcome, _) = run(&agent, &provider);
 
-    assert_eq!(outcome, Outcome::Failed(Failure::NoAnswer { turn: 2 }));
+    assert_eq!(
+        outcome,
+        Outcome::Failed(Failure::NoAnswer {
+            turn: 2,
+            tools: true
+        })
+    );
 }
 
 #[test]

@@ -403,11 +403,15 @@ fn max_output_tokens_reaches_the_budget_and_is_never_zero() {
 #[test]
 fn a_reply_that_isnt_an_answer_exits_1() {
     for failure in [
-        Failure::NoAnswer { turn: 1 },
+        Failure::NoAnswer {
+            turn: 1,
+            tools: false,
+        },
         Failure::OnlyReasoned {
             turn: 1,
             chars: 9,
             ending: "thinking.".into(),
+            tools: true,
         },
         Failure::AnswerCutOff { turn: 2 },
         Failure::ToolCallsCutOff { turn: 3 },
