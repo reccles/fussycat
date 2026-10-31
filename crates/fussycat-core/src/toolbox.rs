@@ -70,6 +70,12 @@ impl Toolbox {
         Ok(Self { tools: granted })
     }
 
+    /// Whether nothing is granted: the model can only answer.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.tools.is_empty()
+    }
+
     #[must_use]
     pub fn specs(&self) -> Vec<ToolSpec> {
         self.tools

@@ -8,8 +8,10 @@ use serde_json::json;
 
 use super::*;
 
+/// Room for the server to start on a slow machine (Python under an
+/// emulator takes a second), far less than the fake's 5-second `wait`.
 const BRIEF: Limits = Limits {
-    timeout: Duration::from_millis(500),
+    timeout: Duration::from_secs(2),
     ..Limits::DEFAULT
 };
 
@@ -160,9 +162,9 @@ async fn a_call_past_the_timeout_is_an_err() {
     let started = Instant::now();
     assert_eq!(
         call(tools[0].as_ref(), json!({})).await,
-        Err("`board__wait` timed out after 0.5s".into())
+        Err("`board__wait` timed out after 2s".into())
     );
-    assert!(started.elapsed() < Duration::from_secs(3));
+    assert!(started.elapsed() < Duration::from_secs(4));
 }
 
 /// A live view runs the author's call, with the author's arguments, every
@@ -252,25 +254,30 @@ async fn a_server_that_wont_start_says_why() {
 /// shell started proves it by never writing its file.
 #[tokio::test(flavor = "current_thread")]
 async fn dropping_the_server_kills_what_it_started() {
-    let proof = std::env::temp_dir().join(format!("fussycat-mcp-survived-{}", std::process::id()));
-    let _ = std::fs::remove_file(&proof);
+    let dir = std::env::temp_dir().join(format!("fussycat-mcp-drop-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (go, proof) = (dir.join("go"), dir.join("survived"));
+    // The job waits for `go`, which comes only after the drop, so it
+    // proves it survived however slowly the server started.
     let file = format!(
         "name = \"board\"\n\
-         run = [\"sh\", \"-c\", \"(sleep 0.6; touch '{}') & exec python3 -I '{}'\"]\n\
+         run = [\"sh\", \"-c\", \"(until [ -e '{go}' ]; do sleep 0.05; done; touch '{proof}') & exec python3 -I '{fake}'\"]\n\
          tools = [\"get_current_state\"]",
-        proof.display(),
-        fake()
+        go = go.display(),
+        proof = proof.display(),
+        fake = fake()
     );
-    let began = Instant::now();
     let (server, tools) = started(&file).await;
     assert!(
         call(tools[0].as_ref(), json!({})).await.is_ok(),
         "it was up"
     );
     drop((server, tools));
-    tokio::time::sleep(Duration::from_millis(1200).saturating_sub(began.elapsed())).await;
+    std::fs::write(&go, "").unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
     let survived = proof.exists();
-    let _ = std::fs::remove_file(&proof);
+    let _ = std::fs::remove_dir_all(&dir);
     assert!(!survived, "the server's job outlived it");
 }
 

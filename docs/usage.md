@@ -22,7 +22,9 @@ journalctl -u nginx --since yesterday |
 
 The logs are the task, `triage.md` says what you care about, and the answer
 goes straight into `mail`. Only the answer goes to stdout. Progress and cost
-go to stderr, so nothing else ends up in the email.
+go to stderr, so nothing else ends up in the email. The answer starts at its
+first line with text (blank lines a model leaves before it are dropped) and
+ends with exactly one newline, so `| head -1` gets the first line of it.
 
 ### Exit codes
 
@@ -184,7 +186,7 @@ runs appending to one file at once never mix within a line.
 | `live` | `turn` | each live block's `status` (`fresh`, `stale`, `failed`), `fetched_at` and `error` |
 | `turns` | `summary` | turns that got a reply |
 | `outcome` | `summary` | `answered`, `exhausted` or `failed` (the exit code says the same) |
-| `reason` | `summary` | why it didn't answer, by `kind`: `max_turns` (`turns`), `max_cost` (`cap_usd`, `spent_usd`), `provider` (`message`, `retries`), `source` (`block`, `error`), `cost_unreported`, `no_answer`, `only_reasoned`, `answer_cut_off`, `tool_calls_cut_off` (each with its `turn`). Absent when answered |
+| `reason` | `summary` | why it didn't answer, by `kind`: `max_turns` (`turns`), `max_cost` (`cap_usd`, `spent_usd`), `provider` (`message`, `retries`), `source` (`block`, `error`), `cost_unreported`, `no_answer`, `only_reasoned`, `answer_cut_off`, `tool_calls_cut_off` (each with its `turn`; `no_answer` and `only_reasoned` also say whether `tools` were granted, when the empty reply may be a dropped tool call). Absent when answered |
 | `detail` | `summary` | the same reason as a sentence, as stderr shows it |
 
 The answer itself is never in the metrics: it goes to stdout only.

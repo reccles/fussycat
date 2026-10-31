@@ -287,7 +287,7 @@ impl McpServer {
         let (program, rest) = self.run.split_first().expect("checked on load");
         let mut command = isolated(program, &self.env);
         command.args(rest);
-        let (server, stdout, stdin) = serve(command)
+        let (mut server, stdout, stdin) = serve(command)
             .map_err(|error| self.failed(format!("could not run `{program}`: {error}")))?;
         let started = tokio::time::timeout(self.limits.timeout, async {
             let client = ().serve((stdout, stdin)).await.map_err(|e| e.to_string())?;
@@ -297,10 +297,10 @@ impl McpServer {
         .await;
         let (client, tools) = match started {
             Ok(Ok(started)) => started,
-            Ok(Err(error)) => return Err(self.failed(with_stderr(&error, &server))),
+            Ok(Err(error)) => return Err(self.failed(with_stderr(&error, &mut server).await)),
             Err(_) => {
                 let why = format!("didn't start within {}", seconds(self.limits.timeout));
-                return Err(self.failed(with_stderr(&why, &server)));
+                return Err(self.failed(with_stderr(&why, &mut server).await));
             }
         };
         let connection = Connection {
@@ -423,8 +423,8 @@ fn view_of(name: &str, view: ViewDecl) -> Result<View, String> {
 }
 
 /// `why`, with what the server said on stderr, if anything.
-fn with_stderr(why: &str, server: &Server) -> String {
-    match server.stderr() {
+async fn with_stderr(why: &str, server: &mut Server) -> String {
+    match server.last_words().await {
         said if said.is_empty() => why.to_owned(),
         said => format!("{why}: {said}"),
     }

@@ -376,16 +376,25 @@ async fn list_models(provider: ProviderName, endpoints: Endpoints<'_>) -> ExitCo
 fn report(outcome: Outcome) -> ExitCode {
     let code = ExitCode::from(exit_code(&outcome));
     match outcome {
-        Outcome::Answered(mut answer) => {
-            if !answer.ends_with('\n') {
-                answer.push('\n');
-            }
-            return print(&answer, code);
-        }
+        Outcome::Answered(answer) => return print(&as_printed(&answer), code),
         Outcome::Exhausted(limit) => warn(format_args!("stopped: {limit}")),
         Outcome::Failed(failure) => warn(failure),
     }
     code
+}
+
+/// The answer as stdout gets it: from its first line with something on it
+/// (a thinking model can leave blank lines after its reasoning, and a
+/// script reads the first line), to exactly one trailing newline. The first
+/// line keeps its indentation: it may be code.
+fn as_printed(answer: &str) -> String {
+    let first = answer.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+    let line = answer[..first].rfind('\n').map_or(0, |newline| newline + 1);
+    let mut printed = answer[line..].to_owned();
+    if !printed.ends_with('\n') {
+        printed.push('\n');
+    }
+    printed
 }
 
 /// `text` on stdout, then `code`; or exit 1, saying why on stderr, if

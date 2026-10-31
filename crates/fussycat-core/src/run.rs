@@ -19,6 +19,26 @@ use crate::quilt::{Block, BlockName, Kind, Quilt, SourceError};
 use crate::report::{Reporter, RunSummary, TurnReport, Usage, prefix_fingerprints};
 use crate::toolbox::ToolResult;
 
+/// For an empty reply in a run with tools: what else it can be.
+fn dropped_call(tools: bool) -> &'static str {
+    if tools {
+        "; with tools granted, the provider may have dropped a tool call it couldn't read"
+    } else {
+        ""
+    }
+}
+
+/// For a reply that only reasoned: what to try.
+fn what_may_help(tools: bool) -> &'static str {
+    if tools {
+        "with tools granted, the provider may have dropped a tool call it couldn't read \
+         (if the reasoning ends by making one, try another model), or another reasoning \
+         effort may get one"
+    } else {
+        "another reasoning effort may get one"
+    }
+}
+
 /// Which budget limit ended a run.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Limit {
@@ -79,20 +99,24 @@ pub enum Failure {
     /// spend more than it can count.
     #[error("a cost limit is set, but the provider didn't report what turn {turn} cost")]
     CostUnreported { turn: u32 },
-    /// A reply with no tool calls and no text (or only whitespace).
-    #[error("the model gave no answer: its reply on turn {turn} was empty")]
-    NoAnswer { turn: u32 },
+    /// A reply with no tool calls and no text (or only whitespace). `tools`:
+    /// the run had tools, so the reply may have been a call the provider
+    /// failed to read and dropped (seen with some local models).
+    #[error("the model gave no answer: its reply on turn {turn} was empty{}", dropped_call(*.tools))]
+    NoAnswer { turn: u32, tools: bool },
     /// [`Failure::NoAnswer`] from a model that reasoned first: it stopped
     /// mid-thought, rather than the provider sending nothing. `ending` is
     /// the reasoning's last line, cut to its last [`ENDING_CHARS`].
     #[error(
         "the model gave no answer: on turn {turn} it reasoned ({chars} characters, \
-         ending {ending:?}) but wrote no reply; another reasoning effort may get one"
+         ending {ending:?}) but wrote no reply; {}",
+        what_may_help(*.tools)
     )]
     OnlyReasoned {
         turn: u32,
         chars: usize,
         ending: String,
+        tools: bool,
     },
     /// Part of an answer isn't the answer, and stdout holds only the answer.
     #[error(
@@ -308,7 +332,8 @@ impl<'a> Run<'a> {
             self.usage
                 .map_or(response.usage, |total| total.plus(response.usage)),
         );
-        let (ended, calls_tools) = match Step::of(&response, self.turns) {
+        let tools = !self.agent.toolbox.is_empty();
+        let (ended, calls_tools) = match Step::of(&response, self.turns, tools) {
             // When no turn follows, nothing would read the tools' results,
             // so they don't run (a tool that sends mail would send it for
             // nothing).
@@ -374,7 +399,8 @@ enum Step {
 }
 
 impl Step {
-    fn of(response: &Response, turn: u32) -> Self {
+    /// `tools`: whether the run has tools, for what an empty reply may be.
+    fn of(response: &Response, turn: u32, tools: bool) -> Self {
         let calls_tools = response.turn.tool_calls().next().is_some();
         match (response.stop, calls_tools) {
             (Stop::OutputLimit, true) => Self::Fail(Failure::ToolCallsCutOff { turn }),
@@ -389,9 +415,10 @@ impl Step {
                         turn,
                         chars,
                         ending,
+                        tools,
                     })
                 } else {
-                    Self::Fail(Failure::NoAnswer { turn })
+                    Self::Fail(Failure::NoAnswer { turn, tools })
                 }
             }
         }

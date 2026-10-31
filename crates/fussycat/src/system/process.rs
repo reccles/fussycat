@@ -372,6 +372,9 @@ pub struct Server {
     _child: tokio::process::Child,
     group: Group,
     stderr: Arc<Mutex<Stream>>,
+    /// The task reading stderr, done once the server and all it started
+    /// have closed it.
+    stderr_reader: Option<tokio::task::JoinHandle<()>>,
 }
 
 /// How much of a server's stderr is kept for its errors.
@@ -399,7 +402,7 @@ pub fn serve(
     running.push(group.0);
     drop(running);
     let stderr = Arc::new(Mutex::new(Stream::default()));
-    if let Some(mut pipe) = child.stderr.take() {
+    let stderr_reader = child.stderr.take().map(|mut pipe| {
         let kept = Arc::clone(&stderr);
         tokio::spawn(async move {
             use tokio::io::AsyncReadExt;
@@ -407,19 +410,31 @@ pub fn serve(
             while let Ok(read @ 1..) = pipe.read(&mut chunk).await {
                 lock(&kept).push(&chunk[..read], SERVER_STDERR);
             }
-        });
-    }
+        })
+    });
     let stdout = child.stdout.take().expect("piped");
     let stdin = child.stdin.take().expect("piped");
     let server = Server {
         _child: child,
         group,
         stderr,
+        stderr_reader,
     };
     Ok((server, stdout, stdin))
 }
 
 impl Server {
+    /// What it wrote to stderr, for a server that failed: once its stderr
+    /// is closed (it exited), or after [`DRAIN_GRACE`] (a job it left holds
+    /// the pipe). Without the wait, a server that died at once can be read
+    /// before its last words arrive.
+    pub async fn last_words(&mut self) -> String {
+        if let Some(reader) = self.stderr_reader.take() {
+            let _ = tokio::time::timeout(DRAIN_GRACE, reader).await;
+        }
+        self.stderr()
+    }
+
     /// What it has written to stderr so far, trimmed and cut to
     /// [`SERVER_STDERR`] bytes.
     pub fn stderr(&self) -> String {

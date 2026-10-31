@@ -112,6 +112,11 @@ fn stdout_gets_one_trailing_newline_and_nothing_without_an_answer() {
     server.join().unwrap();
     assert_eq!(output.stdout, b"It's noon.\n", "a newline isn't doubled");
 
+    let (url, server) = fake_ollama("\n\n391");
+    let output = run(answering(&url), "What is 17*23?");
+    server.join().unwrap();
+    assert_eq!(output.stdout, b"391\n", "blank lines before it go");
+
     let (url, server) = fake_ollama_replying(vec![serde_json::json!({
         "role": "assistant", "content": "",
         "tool_calls": [{"function": {"name": "now", "arguments": {}}}]})]);
@@ -206,19 +211,30 @@ fn a_silent_provider_is_given_up_on_at_the_provider_timeout() {
 }
 
 /// A file descriptor fussycat was handed (a wrapper's, or bash's `<(cmd)`)
-/// never reaches a tool: here a shell opens fd 7, then becomes fussycat,
-/// and the tool lists the descriptors it has.
+/// never reaches a tool: here a shell opens fd 7 on a file holding a
+/// marker, then becomes fussycat, and the tool reads every descriptor it
+/// has past stdio, counting markers. By content, not number: an emulator
+/// (Rosetta under Docker) gives every process descriptors of its own,
+/// 7 among them.
 #[test]
 fn a_tool_never_inherits_fussycats_file_descriptors() {
+    let dir = scratch("fds");
+    let marker = dir.join("marker");
+    std::fs::write(&marker, "fussycat-inherited-fd-marker\n").unwrap();
     let (url, server) = fake_ollama_replying(vec![
         serde_json::json!({"role": "assistant", "content": "",
             "tool_calls": [{"function": {"name": "fds", "arguments": {}}}]}),
-        serde_json::json!({"role": "assistant", "content": "Listed."}),
+        serde_json::json!({"role": "assistant", "content": "Read."}),
     ]);
+    // Reads each descriptor from 3 up that's a regular file (0-2 are
+    // fussycat's pipes, and reading a pipe or socket could wait forever;
+    // macOS's sh holds a socket), then says how many held the marker.
+    let read_every_fd = r#"for fd in /dev/fd/*; do case "${fd##*/}" in 0|1|2) ;; *) [ -f "$fd" ] && head -c 4096 "$fd";; esac; done 2>/dev/null | grep -c inherited-fd-marker; true"#;
     let mut command = Command::new("sh");
     command
-        .args(["-c", r#"exec 7</dev/null; exec "$0" "$@""#])
+        .args(["-c", r#"exec 7<"$1"; shift; exec "$0" "$@""#])
         .arg(env!("CARGO_BIN_EXE_fussycat"))
+        .arg(&marker)
         .args([
             "--model",
             "ollama:m",
@@ -228,24 +244,21 @@ fn a_tool_never_inherits_fussycats_file_descriptors() {
             "0",
             "-q",
         ])
-        .args(["--tool", "fds=ls /dev/fd | tr '\\n' ' '"])
+        .args(["--tool", &format!("fds={read_every_fd}")])
         .env_clear()
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .env("NO_PROXY", "127.0.0.1,localhost");
-    let output = run(command, "List your descriptors.");
+    let output = run(command, "Read your descriptors.");
     let asked = server.join().unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
-    let result = &asked[1];
-    let listed = result
-        .split("\"content\":\"")
-        .find(|part| part.starts_with("0 1 "))
-        .expect("the tool's result")
-        .split('"')
+    let result = asked[1]
+        .rsplit("\"role\":\"tool\"")
         .next()
-        .unwrap();
-    let fds: Vec<&str> = listed.split_whitespace().collect();
-    assert!(fds.contains(&"2"), "the listing: {listed}");
-    assert!(!fds.contains(&"7"), "fd 7 reached the tool: {listed}");
+        .and_then(|tool| tool.split("\"content\":\"").nth(1))
+        .and_then(|content| content.split('"').next())
+        .expect("the tool's result");
+    assert_eq!(result, r"0\n", "the marker's file reached the tool");
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
