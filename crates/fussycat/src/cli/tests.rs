@@ -437,3 +437,14 @@ fn an_answer_is_printed_from_its_first_line_with_text() {
     );
     assert_eq!(as_printed("  391"), "  391\n");
 }
+
+/// llama.cpp's key is optional: without its key command a run is
+/// prepared, where Venice's is refused as a usage error.
+#[test]
+fn a_llamacpp_run_needs_no_key_command() {
+    assert!(agent(&["--model", "llamacpp:qwen3.8-27b"]).is_ok());
+    assert!(matches!(
+        refused(&["--model", "venice:claude-haiku-5-5"]),
+        Refused::Usage(message) if message.contains("FUSSYCAT_VENICE_KEY_COMMAND")
+    ));
+}

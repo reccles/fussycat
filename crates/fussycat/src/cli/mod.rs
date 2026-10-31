@@ -26,7 +26,7 @@ use crate::system::{
 };
 #[cfg(unix)]
 use crate::system::{Signal, on_stop_signal};
-use fussycat_providers::{Adapter, ModelRef, ProviderName, RetryPolicy};
+use fussycat_providers::{Adapter, Endpoints, ModelRef, ProviderName, RetryPolicy};
 
 const EXIT_FAILED: u8 = 1;
 const EXIT_USAGE: u8 = 2;
@@ -41,7 +41,7 @@ pub async fn main() -> ExitCode {
         return ExitCode::from(EXIT_FAILED);
     }
     if let Some(provider) = args.list_models {
-        return list_models(provider, &args.ollama_url).await;
+        return list_models(provider, endpoints(&args)).await;
     }
     if let Some(path) = &args.list_tools {
         return mcp::list_tools(path, limits(&args)).await;
@@ -144,7 +144,7 @@ async fn prepare(args: &Args, stdin: Option<impl Read>) -> Result<Prepared, Refu
     let agent = Agent::new(blocks, Toolbox::grant(tools)?, budget)?;
     let provider = model
         .connect(
-            &args.ollama_url,
+            endpoints(args),
             api_key(model.provider, model)?,
             RetryPolicy {
                 max_retries: args.retries,
@@ -157,14 +157,29 @@ async fn prepare(args: &Args, stdin: Option<impl Read>) -> Result<Prepared, Refu
 }
 
 /// The provider's API key, from the command its variable names; `None` for
-/// a provider that needs none. `who` names what wants it, in errors. No
-/// variable is a usage error; a command that fails is the world's.
+/// a provider that takes none, or whose key is optional and not set. `who`
+/// names what wants it, in errors. A required key's variable unset is a
+/// usage error; a command that fails is the world's.
 fn api_key(provider: ProviderName, who: &dyn std::fmt::Display) -> Result<Option<String>, Refused> {
     let Some(env) = provider.key_command_env() else {
         return Ok(None);
     };
-    let command = std::env::var(env).map_err(|_| Refused::Usage(provider.needs_a_key(who)))?;
+    let Ok(command) = std::env::var(env) else {
+        return if provider.key_required() {
+            Err(Refused::Usage(provider.needs_a_key(who)))
+        } else {
+            Ok(None)
+        };
+    };
     read_key(env, &command).map(Some).map_err(Refused::Failed)
+}
+
+/// The servers on your own hardware, as the flags (or settings) say.
+fn endpoints(args: &Args) -> Endpoints<'_> {
+    Endpoints {
+        ollama: &args.ollama_url,
+        llamacpp: &args.llamacpp_url,
+    }
 }
 
 fn reporters(args: &Args, model: &ModelRef) -> Result<Reporters, Refused> {
@@ -332,7 +347,7 @@ fn read_task(stdin: Option<impl Read>) -> Result<Task, Refused> {
 }
 
 /// One line per model on stdout.
-async fn list_models(provider: ProviderName, ollama_url: &str) -> ExitCode {
+async fn list_models(provider: ProviderName, endpoints: Endpoints<'_>) -> ExitCode {
     // The provider asks for the key only if listing needs one, and hands
     // back its message alone: keep the refusal, which knows its exit code.
     let mut key_refused = None;
@@ -343,7 +358,7 @@ async fn list_models(provider: ProviderName, ollama_url: &str) -> ExitCode {
             message
         })
     };
-    match provider.list_models(ollama_url, key).await {
+    match provider.list_models(endpoints, key).await {
         Ok(models) => {
             let lines: String = models
                 .iter()

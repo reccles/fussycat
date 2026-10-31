@@ -28,7 +28,7 @@ flowchart TB
     subgraph Adapters["Adapters (know argv, stdio, env, HTTP)"]
         CLI["CLI: flags -> Agent, Task; exit codes"]
         Sink["Reporters: stderr summary, -v detail, --metrics JSONL"]
-        Prov["Providers: Anthropic, Venice, Ollama"]
+        Prov["Providers: Anthropic, Venice, Ollama, llama.cpp"]
         Sys["System: processes, shell, tool files, clock"]
     end
     subgraph Core["Core (pure domain + ports)"]
@@ -303,7 +303,7 @@ makes a run's cost not depend on a default they can't see.
 
 | Port | Implemented by | For |
 |---|---|---|
-| `Provider` | Anthropic, Venice, Ollama | a request in; a reply, usage and retries out |
+| `Provider` | Anthropic, Venice, Ollama, llama.cpp | a request in; a reply, usage and retries out |
 | `Source` | file (`--stable`), command (`--live`), MCP view (`--live mcp:SERVER.VIEW`) | block content |
 | `Tool` | shell tool, tool file, MCP tool | one granted tool: its spec and its invocation |
 | `Clock` | the system clock; a fake in tests | fetch times, durations |

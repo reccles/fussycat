@@ -62,7 +62,7 @@ pub(super) struct Args {
     pub(super) list_tools: Option<PathBuf>,
 
     /// The model, named with its provider: ollama:gpt-oss:20b,
-    /// venice:claude-haiku-5-5. A paid provider's key comes from a command
+    /// llamacpp:qwen3.8-27b, venice:claude-haiku-5-5. A paid provider's key comes from a command
     /// named in `FUSSYCAT_<PROVIDER>_KEY_COMMAND` (a password manager's CLI), read
     /// through a pipe: the key is never in argv, the environment or a file.
     #[arg(
@@ -90,6 +90,16 @@ pub(super) struct Args {
         default_value = "http://localhost:11434"
     )]
     pub(super) ollama_url: String,
+
+    /// The llama.cpp server (`llama-server`), with its /v1. A server
+    /// started with --api-key gets its key from the command in
+    /// `FUSSYCAT_LLAMACPP_KEY_COMMAND`; one without needs nothing.
+    #[arg(
+        long,
+        env = "FUSSYCAT_LLAMACPP_URL",
+        default_value = "http://localhost:8080/v1"
+    )]
+    pub(super) llamacpp_url: String,
 
     /// Retry a failed model call this many times (429s, 5xx, dropped
     /// connections; never a rejected request), backing off 1s, 2s, 4s...

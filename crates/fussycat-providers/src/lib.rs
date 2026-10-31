@@ -7,6 +7,7 @@ mod adapter;
 mod anthropic;
 mod failure;
 mod listing;
+mod llamacpp;
 mod messages;
 mod ollama;
 mod retry;
@@ -67,8 +68,28 @@ fn client_with(connect: Duration, read: Duration) -> reqwest::Client {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderName {
     Anthropic,
+    LlamaCpp,
     Ollama,
     Venice,
+}
+
+/// Where the servers on your own hardware are: `--ollama-url`,
+/// `--llamacpp-url`.
+#[derive(Debug, Clone, Copy)]
+pub struct Endpoints<'a> {
+    pub ollama: &'a str,
+    pub llamacpp: &'a str,
+}
+
+/// Whether a provider takes an API key, and the environment variable
+/// holding the command that prints it. The variable holds the command,
+/// never the key.
+#[derive(Clone, Copy)]
+enum Key {
+    None,
+    Required(&'static str),
+    /// A server you run may or may not have been started with a key.
+    Optional(&'static str),
 }
 
 /// What fussycat knows about a provider before calling it.
@@ -79,35 +100,39 @@ struct Facts {
     /// kept. Ollama runs on your own hardware and reports no price;
     /// Anthropic reports tokens, not dollars.
     reports_cost: bool,
-    /// The environment variable holding the command that prints the API
-    /// key, if it needs one. The variable holds the command, never the key.
-    key_command_env: Option<&'static str>,
+    key: Key,
     /// How long a model call may go silent before it's given up on, unless
     /// the author says otherwise.
     read_timeout: Duration,
 }
 
 impl ProviderName {
-    const ALL: [Self; 3] = [Self::Anthropic, Self::Ollama, Self::Venice];
+    const ALL: [Self; 4] = [Self::Anthropic, Self::LlamaCpp, Self::Ollama, Self::Venice];
 
     const fn facts(self) -> Facts {
         match self {
             Self::Anthropic => Facts {
                 name: "anthropic",
                 reports_cost: false,
-                key_command_env: Some("FUSSYCAT_ANTHROPIC_KEY_COMMAND"),
+                key: Key::Required("FUSSYCAT_ANTHROPIC_KEY_COMMAND"),
                 read_timeout: API_READ_TIMEOUT,
+            },
+            Self::LlamaCpp => Facts {
+                name: "llamacpp",
+                reports_cost: false,
+                key: Key::Optional("FUSSYCAT_LLAMACPP_KEY_COMMAND"),
+                read_timeout: LOCAL_READ_TIMEOUT,
             },
             Self::Ollama => Facts {
                 name: "ollama",
                 reports_cost: false,
-                key_command_env: None,
+                key: Key::None,
                 read_timeout: LOCAL_READ_TIMEOUT,
             },
             Self::Venice => Facts {
                 name: "venice",
                 reports_cost: true,
-                key_command_env: Some("FUSSYCAT_VENICE_KEY_COMMAND"),
+                key: Key::Required("FUSSYCAT_VENICE_KEY_COMMAND"),
                 read_timeout: API_READ_TIMEOUT,
             },
         }
@@ -139,10 +164,20 @@ impl ProviderName {
     }
 
     /// The environment variable holding the command that prints this
-    /// provider's API key, if it needs one.
+    /// provider's API key, if it takes one.
     #[must_use]
     pub fn key_command_env(self) -> Option<&'static str> {
-        self.facts().key_command_env
+        match self.facts().key {
+            Key::None => None,
+            Key::Required(env) | Key::Optional(env) => Some(env),
+        }
+    }
+
+    /// Whether it can't be called without a key. llama.cpp takes one only
+    /// if its server was started with one.
+    #[must_use]
+    pub fn key_required(self) -> bool {
+        matches!(self.facts().key, Key::Required(_))
     }
 
     /// Why `who` (this provider, or one of its models) can't go on without
@@ -160,7 +195,7 @@ impl ProviderName {
     /// Anthropic needs a key to list, so only it asks `key` for one.
     pub async fn list_models(
         self,
-        ollama_url: &str,
+        endpoints: Endpoints<'_>,
         key: impl FnOnce() -> Result<Option<String>, String>,
     ) -> Result<Vec<Listed>, String> {
         match self {
@@ -168,7 +203,8 @@ impl ProviderName {
                 let key = key()?.ok_or_else(|| self.needs_a_key(&self))?;
                 anthropic::list(&key).await
             }
-            Self::Ollama => ollama::list(ollama_url).await,
+            Self::LlamaCpp => llamacpp::list(endpoints.llamacpp).await,
+            Self::Ollama => ollama::list(endpoints.ollama).await,
             Self::Venice => venice::list().await,
         }
     }
@@ -238,17 +274,20 @@ impl ModelRef {
     /// missing key is a usage error, found before any model call.
     pub fn connect(
         &self,
-        ollama_url: &str,
+        endpoints: Endpoints<'_>,
         key: Option<String>,
         retry: RetryPolicy,
         read_timeout: Option<Duration>,
     ) -> Result<Adapter, String> {
-        let key = || key.ok_or_else(|| self.provider.needs_a_key(self));
         let http = http(read_timeout.unwrap_or(self.provider.read_timeout()));
+        let required = |key: Option<String>| key.ok_or_else(|| self.provider.needs_a_key(self));
         Ok(match self.provider {
-            ProviderName::Anthropic => anthropic::connect(key()?, &self.name, retry, http),
-            ProviderName::Ollama => ollama::connect(ollama_url, &self.name, retry, http),
-            ProviderName::Venice => venice::connect(key()?, &self.name, retry, http),
+            ProviderName::Anthropic => anthropic::connect(required(key)?, &self.name, retry, http),
+            ProviderName::LlamaCpp => {
+                llamacpp::connect(endpoints.llamacpp, key, &self.name, retry, http)
+            }
+            ProviderName::Ollama => ollama::connect(endpoints.ollama, &self.name, retry, http),
+            ProviderName::Venice => venice::connect(required(key)?, &self.name, retry, http),
         })
     }
 }
@@ -291,7 +330,9 @@ mod tests {
         assert_eq!("venice".parse(), Ok(ProviderName::Venice));
         assert_eq!(
             "Venice".parse::<ProviderName>(),
-            Err("unknown provider `Venice` (providers: anthropic, ollama, venice)".into())
+            Err(
+                "unknown provider `Venice` (providers: anthropic, llamacpp, ollama, venice)".into()
+            )
         );
     }
 
@@ -305,10 +346,37 @@ mod tests {
         assert!(API_READ_TIMEOUT < LOCAL_READ_TIMEOUT);
     }
 
+    /// A llama.cpp server takes a key only if it was started with one, so
+    /// a run without its key command still connects.
+    #[test]
+    fn llamacpp_takes_a_key_only_if_its_server_wants_one() {
+        assert_eq!(
+            ProviderName::LlamaCpp.key_command_env(),
+            Some("FUSSYCAT_LLAMACPP_KEY_COMMAND")
+        );
+        assert!(!ProviderName::LlamaCpp.key_required());
+        assert!(ProviderName::Venice.key_required());
+        assert!(!ProviderName::Ollama.key_required());
+        let model: ModelRef = "llamacpp:qwen3.8-27b".parse().unwrap();
+        let endpoints = Endpoints {
+            ollama: "http://unused",
+            llamacpp: "http://unused",
+        };
+        assert!(
+            model
+                .connect(endpoints, None, RetryPolicy::default(), None)
+                .is_ok()
+        );
+    }
+
     #[test]
     fn venice_without_a_key_is_refused_before_any_call() {
         let venice: ModelRef = "venice:claude-haiku-5-5".parse().unwrap();
-        let Err(error) = venice.connect("http://unused", None, RetryPolicy::default(), None) else {
+        let unused = Endpoints {
+            ollama: "http://unused",
+            llamacpp: "http://unused",
+        };
+        let Err(error) = venice.connect(unused, None, RetryPolicy::default(), None) else {
             panic!("connected without a key");
         };
         assert!(
