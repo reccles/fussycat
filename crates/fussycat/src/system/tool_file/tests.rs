@@ -82,10 +82,12 @@ type = "string"
 }
 
 /// A tool with one input `{text}`, declared by `input` (the TOML lines
-/// after `[input.text]`), that prints what it was given.
+/// after `[input.text]`), that prints what it was given. `--` because
+/// uutils printf (Ubuntu 26.04's) reads `--version` as its own option
+/// even after the format; GNU and BSD printf skip it.
 fn echo(input: &str) -> ToolFile {
     tool(&format!(
-        "name = \"echo\"\ndescription = \"d\"\nrun = [\"printf\", \"%s\", \"{{text}}\"]\n[input.text]\n{input}"
+        "name = \"echo\"\ndescription = \"d\"\nrun = [\"printf\", \"--\", \"%s\", \"{{text}}\"]\n[input.text]\n{input}"
     ))
 }
 
@@ -218,7 +220,7 @@ type = "boolean"
 const BROAD: &str = r#"
 name = "show"
 help = ["sh", "-c", "echo 'Usage: show [WORDS]'; echo; echo '  Prints each word in brackets.   '"]
-run = ["printf", "[%s]", "{args...}"]
+run = ["printf", "--", "[%s]", "{args...}"]
 "#;
 
 #[test]

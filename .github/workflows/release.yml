@@ -5,8 +5,9 @@
 #
 # Each target builds natively on its own runner: aws-lc-sys compiles C, and a
 # native musl-gcc is simpler than a cross toolchain. The Linux builds are
-# musl, so they're static and run on any distro.
-# Toolchain and actions are pinned like ci.yml: bump the SHA and the comment.
+# musl, so they're static and run on any distro, whatever image built them.
+# Toolchain, images and actions are pinned like ci.yml: bump the SHA and the
+# comment. The arm build stays on 24.04 until GitHub offers ubuntu-26.04-arm.
 name: release
 on:
   push:
@@ -27,7 +28,7 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
+            os: ubuntu-26.04
           - target: aarch64-unknown-linux-musl
             os: ubuntu-24.04-arm
           - target: aarch64-apple-darwin
@@ -74,7 +75,7 @@ jobs:
   release:
     if: github.ref_type == 'tag'
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
