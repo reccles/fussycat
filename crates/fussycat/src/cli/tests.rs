@@ -415,3 +415,14 @@ fn a_reply_that_isnt_an_answer_exits_1() {
         assert_eq!(exit_code(&Outcome::Failed(failure)), EXIT_FAILED);
     }
 }
+
+/// llama.cpp's key is optional: without its key command a run is
+/// prepared, where Venice's is refused as a usage error.
+#[test]
+fn a_llamacpp_run_needs_no_key_command() {
+    assert!(agent(&["--model", "llamacpp:qwen3.8-27b"]).is_ok());
+    assert!(matches!(
+        refused(&["--model", "venice:claude-haiku-5-5"]),
+        Refused::Usage(message) if message.contains("FUSSYCAT_VENICE_KEY_COMMAND")
+    ));
+}

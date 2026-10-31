@@ -196,10 +196,19 @@ The same agent runs on any provider: change `--model` and you're done.
 | Provider | `--model` | Key |
 |---|---|---|
 | Ollama | `ollama:gpt-oss:20b` | none; `--ollama-url` or `FUSSYCAT_OLLAMA_URL` (default `http://localhost:11434`) |
+| llama.cpp | `llamacpp:qwen3.8-27b` | only if `llama-server` was started with `--api-key`: `FUSSYCAT_LLAMACPP_KEY_COMMAND`; `--llamacpp-url` or `FUSSYCAT_LLAMACPP_URL` (default `http://localhost:8080/v1`) |
 | Anthropic | `anthropic:claude-haiku-5-5` | `FUSSYCAT_ANTHROPIC_KEY_COMMAND` |
 | Venice | `venice:claude-haiku-5-5` | `FUSSYCAT_VENICE_KEY_COMMAND` |
 
 `fussycat --list-models PROVIDER` shows what you can run.
+
+Both local servers run models on your own hardware. llama.cpp's
+`llama-server` uses each model's own chat template and tool-call parser:
+where Ollama 0.40.13 dropped about half of qwen3's tool calls (a model's
+reply then fails as empty), llama-server returned every one. Its model name
+is the server's alias (`--alias`, or a router preset's name), as
+`--list-models llamacpp` shows. `--reasoning-effort` reaches the model's
+template as `reasoning_effort`; `off` turns a qwen3 model's thinking off.
 
 Keys are the one thing fussycat is strict about. A key never goes in argv,
 the environment or a file, where other processes, your shell history or a

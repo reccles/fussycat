@@ -24,7 +24,15 @@ fn connect(model: &str) -> fussycat_providers::Adapter {
         .unwrap_or_else(|_| panic!("set {env} to a command that prints the key to run paid tests"));
     let key = crate::system::read_key(env, &command).unwrap_or_else(|error| panic!("{error}"));
     model
-        .connect("http://unused", Some(key), RetryPolicy::default(), None)
+        .connect(
+            fussycat_providers::Endpoints {
+                ollama: "http://unused",
+                llamacpp: "http://unused",
+            },
+            Some(key),
+            RetryPolicy::default(),
+            None,
+        )
         .unwrap()
 }
 
