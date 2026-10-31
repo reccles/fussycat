@@ -110,7 +110,7 @@ jobs:
           tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP" --strip-components=1 "shellcheck-v$SHELLCHECK_VERSION/shellcheck"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: lint
-        run: shellcheck -x examples/*.sh examples/tools/pigglywiggly
+        run: shellcheck -x examples/*.sh examples/tools/pigglywiggly scripts/*.sh
 
   # The binary, not gitleaks-action (which needs a licence for orgs). Pinned
   # and checksum-verified: bump the version AND the sha together.
