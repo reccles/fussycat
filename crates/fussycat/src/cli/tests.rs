@@ -415,3 +415,21 @@ fn a_reply_that_isnt_an_answer_exits_1() {
         assert_eq!(exit_code(&Outcome::Failed(failure)), EXIT_FAILED);
     }
 }
+
+/// Blank lines before the answer go (a thinking model leaves them after its
+/// reasoning, and a script reads the first line); the first line's own
+/// indentation, and everything after it, stay.
+#[test]
+fn an_answer_is_printed_from_its_first_line_with_text() {
+    assert_eq!(as_printed("\n\n391"), "391\n");
+    assert_eq!(
+        as_printed(" \n\t\n    indented();\n\nnext"),
+        "    indented();\n\nnext\n"
+    );
+    assert_eq!(
+        as_printed("391\n"),
+        "391\n",
+        "one trailing newline, never two"
+    );
+    assert_eq!(as_printed("  391"), "  391\n");
+}

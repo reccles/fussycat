@@ -22,7 +22,9 @@ journalctl -u nginx --since yesterday |
 
 The logs are the task, `triage.md` says what you care about, and the answer
 goes straight into `mail`. Only the answer goes to stdout. Progress and cost
-go to stderr, so nothing else ends up in the email.
+go to stderr, so nothing else ends up in the email. The answer starts at its
+first line with text (blank lines a model leaves before it are dropped) and
+ends with exactly one newline, so `| head -1` gets the first line of it.
 
 ### Exit codes
 
