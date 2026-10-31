@@ -241,6 +241,7 @@ one is `Exhausted` (exit 3), a normal outcome.
 | `--max-cost` | off | US dollars of *provider-reported* cost, checked before each call. A turn with unreported cost fails the run rather than spend blind, so it's refused up front for a provider that never reports cost. |
 | `--max-tool-output` | 32 KiB | each tool result and live block, cut visibly with a note giving the true size |
 | `--command-timeout` | 60 s | any command fussycat runs; at the limit its whole process group is killed and it fails like any failing command |
+| `--provider-timeout` | 180 s hosted, 600 s local | how long a model call may send nothing. fussycat asks for whole replies, so the silence is the whole generation: a hosted API answers in seconds, a model on your own hardware may take minutes. At the limit the call fails like a dropped connection, and is retried (`--retries`). Not in the Budget: it's how the adapter talks to the provider, not what the run may spend. |
 | `--max-output-tokens` | the provider's | each reply; a reply cut off at the limit fails the run, so a low limit is never silent |
 | `--reasoning-effort` | the provider's | how hard a thinking model reasons: `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. Not a limit that ends the run, but in the Budget because reasoning tokens are paid output. The adapter maps it to its provider's control, and a level the model doesn't take fails the run before anything is sent, rather than reason at a level nobody asked for. |
 

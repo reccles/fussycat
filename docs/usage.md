@@ -108,6 +108,12 @@ that reaches `--max-turns` or `--max-cost`, the model's tool calls don't
 run: no turn follows to read their results, so a tool that sends or pushes
 never fires for nothing. `-v` and `--metrics` show them as skipped.
 
+A model call that sends nothing for `--provider-timeout` seconds is given
+up on and retried: by default 180 for anthropic and venice, which answer in
+seconds, and 600 for ollama, whose replies on a slow machine take minutes.
+A provider that stalls holds a turn for at most `--provider-timeout` ×
+(`--retries` + 1), then fails the run (exit 1).
+
 ### Reasoning effort
 
 A thinking model's reasoning is output you pay for, and left alone the

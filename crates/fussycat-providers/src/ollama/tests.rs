@@ -11,7 +11,7 @@ use fussycat_core::provider::{Provider, Reasoning};
 fn wire(request: &Request) -> rig_core::http_client::Bytes {
     wire_bytes(
         |http| {
-            with_http(
+            connect(
                 "http://ollama.invalid:11434",
                 "gpt-oss:20b",
                 NO_RETRIES,
@@ -27,7 +27,7 @@ fn wire_json(request: &Request) -> Value {
 }
 
 fn ollama(http: rig_core::http_client::DynHttpClient) -> Adapter {
-    with_http(
+    connect(
         "http://ollama.invalid:11434",
         "gpt-oss:20b",
         NO_RETRIES,
@@ -44,7 +44,7 @@ fn reasoning_goes_on_the_wire_as_think() {
         wire_json(&reasoning_at(Reasoning::High))["think"],
         json!("high")
     );
-    let qwen = |http| with_http("http://ollama.invalid:11434", "qwen3:8b", NO_RETRIES, http);
+    let qwen = |http| connect("http://ollama.invalid:11434", "qwen3:8b", NO_RETRIES, http);
     let off: Value =
         serde_json::from_slice(&wire_bytes(qwen, &reasoning_at(Reasoning::Off))).unwrap();
     assert_eq!(off["think"], json!(false));
@@ -130,7 +130,7 @@ async fn a_stalled_ollama_times_out_and_is_worth_a_retry() {
     let url = format!("http://{}", silent.local_addr().unwrap());
     let client = super::super::client_with(Duration::from_secs(1), Duration::from_millis(100));
     let http = DynHttpClient::new(rig_reqwest::ReqwestClient::from(client));
-    let ollama = with_http(&url, "m", NO_RETRIES, http);
+    let ollama = connect(&url, "m", NO_RETRIES, http);
     let started = Instant::now();
 
     let rig_request = crate::messages::to_rig(&first_turn()).unwrap();

@@ -24,12 +24,9 @@ struct Anthropic {
     default_max_tokens: u64,
 }
 
+/// `http` is the client its calls go through: it sets their timeouts.
 #[must_use]
-pub fn connect(api_key: String, model: &str, retry: Policy) -> Adapter {
-    with_http(api_key, model, retry, super::http())
-}
-
-fn with_http(api_key: String, model: &str, retry: Policy, http: DynHttpClient) -> Adapter {
+pub fn connect(api_key: String, model: &str, retry: Policy, http: DynHttpClient) -> Adapter {
     let config = AnthropicConfig::with_key(&ANTHROPIC, api_key);
     let dialect = Anthropic {
         default_max_tokens: default_max_tokens(config.completion(model).default_max_tokens),

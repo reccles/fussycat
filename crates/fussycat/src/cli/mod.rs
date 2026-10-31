@@ -123,6 +123,13 @@ struct Args {
     )]
     command_timeout: f64,
 
+    /// Give up on a model call that has sent nothing for SECS (fractions
+    /// work), and retry it like a dropped connection. Default: 180 for
+    /// anthropic and venice, which answer in seconds, and 600 for ollama,
+    /// where a slow machine may take minutes over a long reply.
+    #[arg(long, value_name = "SECS", value_parser = seconds)]
+    provider_timeout: Option<f64>,
+
     /// Ask for replies of at most N tokens. A reply cut off at the limit
     /// fails the run (exit 1) rather than pass as an answer. Unset: the
     /// provider's default (ollama, venice), or the model's output limit up
@@ -287,6 +294,7 @@ fn prepare(args: &Args, stdin: Option<impl Read>) -> Result<Prepared, Refused> {
             RetryPolicy {
                 max_retries: args.retries,
             },
+            args.provider_timeout.map(Duration::from_secs_f64),
         )
         .map_err(Refused::Usage)?; // only ever a missing key
     let reporters = reporters(args, model)?;
@@ -346,7 +354,8 @@ fn limits(args: &Args) -> Limits {
     }
 }
 
-/// `--command-timeout`: a positive number of seconds that fits a Duration.
+/// `--command-timeout`, `--provider-timeout`: a positive number of seconds
+/// that fits a Duration.
 fn seconds(text: &str) -> Result<f64, String> {
     let secs: f64 = text
         .parse()

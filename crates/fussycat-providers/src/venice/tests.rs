@@ -14,7 +14,7 @@ const TEST_MODEL: &str = "claude-haiku-5-5";
 
 fn wire(request: &Request) -> rig_core::http_client::Bytes {
     wire_bytes(
-        |http| with_http("not-a-real-key".into(), TEST_MODEL, NO_RETRIES, http),
+        |http| connect("not-a-real-key".into(), TEST_MODEL, NO_RETRIES, http),
         request,
     )
 }
@@ -78,7 +78,7 @@ fn sends_reasoning_effort_only_when_asked() {
 /// xhigh, as `/models` lists): one it lacks fails unsent.
 #[test]
 fn a_level_the_model_lacks_is_refused_unsent() {
-    let qwen = |http| with_http("not-a-real-key".into(), "qwen-3-8-27b", NO_RETRIES, http);
+    let qwen = |http| connect("not-a-real-key".into(), "qwen-3-8-27b", NO_RETRIES, http);
     let error = refusal(qwen, &reasoning_at(Reasoning::High));
     assert!(error.contains("no `high` effort level"), "{error}");
 }
@@ -128,11 +128,12 @@ fn thinking_reply(content: &str) -> Value {
     })
 }
 
-/// Venice at `url`, as [`connect`] builds it.
-fn venice_at(url: &str) -> Adapter {
+/// Venice at `url`, as [`connect`] builds it, giving up on a call silent
+/// for `read`.
+fn venice_at(url: &str, read: std::time::Duration) -> Adapter {
     let client = OpenAIConfig::with_key(&VENICE, "not-a-real-key")
         .with_base_url(url)
-        .connect(crate::http());
+        .connect(crate::http(read));
     let model: rig_core::Model<Chat> = client.chat(TEST_MODEL);
     Adapter::new(model, NO_RETRIES, Venice)
 }
@@ -143,7 +144,9 @@ fn complete(reply: &Value) -> Response {
         .enable_all()
         .build()
         .unwrap();
-    let response = runtime.block_on(venice_at(&url).complete(&first_turn()));
+    let response = runtime.block_on(
+        venice_at(&url, crate::ProviderName::Venice.read_timeout()).complete(&first_turn()),
+    );
     server.join().unwrap();
     response.unwrap()
 }
@@ -220,5 +223,29 @@ fn the_listing_keeps_tool_support_and_prices() {
             "venice:claude-haiku-5-5 context=1000000 tools=yes in=$0.1/M out=$0.5/M cached=$0.01/M",
             "venice:plain-model context=32768 tools=no in=$0.2/M out=$0.9/M",
         ]
+    );
+}
+
+/// A paid API that takes the call and never answers (one sat 6 minutes,
+/// open and silent) is given up on at the read timeout, as a failure
+/// worth a retry, not a hang. Here the timeout is tiny; Venice's own is
+/// minutes.
+#[tokio::test]
+async fn a_silent_venice_is_given_up_on_at_the_read_timeout() {
+    use std::time::{Duration, Instant};
+
+    // The OS accepts connections into the backlog; nothing ever answers.
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", silent.local_addr().unwrap());
+    let started = Instant::now();
+    let error = venice_at(&url, Duration::from_millis(100))
+        .complete(&first_turn())
+        .await
+        .unwrap_err();
+    assert!(error.message.contains("timed out"), "{error}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
     );
 }

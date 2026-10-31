@@ -16,7 +16,7 @@ fn wire(request: &Request) -> rig_core::http_client::Bytes {
 
 fn wire_for(model: &str, request: &Request) -> rig_core::http_client::Bytes {
     wire_bytes(
-        |http| with_http("not-a-real-key".into(), model, NO_RETRIES, http),
+        |http| connect("not-a-real-key".into(), model, NO_RETRIES, http),
         request,
     )
 }

@@ -266,6 +266,27 @@ fn a_hung_command_is_killed_and_the_run_goes_on() {
     );
 }
 
+/// A provider that takes the call and never answers: given up on at
+/// `--provider-timeout`, a failure (exit 1) that says so, not a hang.
+#[test]
+fn a_silent_provider_is_given_up_on_at_the_provider_timeout() {
+    // The OS accepts connections into the backlog; nothing ever answers.
+    let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", silent.local_addr().unwrap());
+    let mut command = answering(&url);
+    command.args(["--provider-timeout", "0.2"]);
+    let started = Instant::now();
+    let output = run(command, "What time is it?");
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert!(stderr(&output).contains("timed out"), "{}", stderr(&output));
+    assert!(started.elapsed() < Duration::from_secs(5));
+
+    let mut zero = answering(&url);
+    zero.args(["--provider-timeout", "0"]);
+    let refused = run(zero, "hi");
+    assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
+}
+
 #[test]
 fn a_reader_that_closes_the_pipe_early_gets_a_quiet_exit_not_a_panic() {
     let (url, server) = fake_ollama(&"a long answer\n".repeat(10_000));
