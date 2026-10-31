@@ -15,12 +15,9 @@ use super::retry::Policy;
 
 struct Venice;
 
+/// `http` is the client its calls go through: it sets their timeouts.
 #[must_use]
-pub fn connect(api_key: String, model: &str, retry: Policy) -> Adapter {
-    with_http(api_key, model, retry, super::http())
-}
-
-fn with_http(api_key: String, model: &str, retry: Policy, http: DynHttpClient) -> Adapter {
+pub fn connect(api_key: String, model: &str, retry: Policy, http: DynHttpClient) -> Adapter {
     let client = OpenAIConfig::with_key(&VENICE, api_key).connect(http);
     let model: rig_core::Model<Chat> = client.chat(model);
     Adapter::new(model, retry, Venice)

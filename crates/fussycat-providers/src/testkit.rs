@@ -38,7 +38,7 @@ pub fn wire_bytes<P: Provider>(
     request: &Request,
 ) -> Bytes {
     let capture = Capture::default();
-    let provider = connect(super::http().with_middleware(capture.clone()));
+    let provider = connect(super::http(super::LOCAL_READ_TIMEOUT).with_middleware(capture.clone()));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();
@@ -50,7 +50,7 @@ pub fn wire_bytes<P: Provider>(
 /// Why `connect`'s provider refused `request` before sending anything.
 pub fn refusal<P: Provider>(connect: impl FnOnce(DynHttpClient) -> P, request: &Request) -> String {
     let capture = Capture::default();
-    let provider = connect(super::http().with_middleware(capture.clone()));
+    let provider = connect(super::http(super::LOCAL_READ_TIMEOUT).with_middleware(capture.clone()));
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();

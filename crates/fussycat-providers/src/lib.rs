@@ -23,27 +23,35 @@ pub use adapter::Adapter;
 pub use listing::Listed;
 pub use retry::Policy as RetryPolicy;
 
-fn http() -> DynHttpClient {
-    DynHttpClient::new(rig_reqwest::ReqwestClient::from(client()))
+/// The client a model's calls go through, giving up on a connection
+/// silent for `read`.
+fn http(read: Duration) -> DynHttpClient {
+    DynHttpClient::new(rig_reqwest::ReqwestClient::from(client_with(
+        CONNECT_TIMEOUT,
+        read,
+    )))
 }
 
 /// A reachable host connects in milliseconds. Without a limit, an
 /// unreachable one waits out the OS's own retries (a minute or two).
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// The longest silence on a connection. fussycat asks for a whole reply,
-/// not a stream, so the provider sends nothing until it has finished
-/// writing: the gap is the whole generation, and a slow local model takes
-/// minutes over a long answer. Ten minutes is also Anthropic's limit for
-/// a reply that isn't streamed. It restarts with every read, so a reply
-/// that keeps arriving is never cut off.
-const READ_TIMEOUT: Duration = Duration::from_secs(600);
+/// The longest silence on a connection to a model on your own hardware.
+/// fussycat asks for a whole reply, not a stream, so the provider sends
+/// nothing until it has finished writing: the gap is the whole generation,
+/// and a slow local model takes minutes over a long answer. It restarts
+/// with every read, so a reply that keeps arriving is never cut off.
+const LOCAL_READ_TIMEOUT: Duration = Duration::from_secs(600);
+/// The same for a hosted API, which answers in seconds (18 s was the
+/// slowest of 45 Venice runs, reasoning at its highest). A call that has
+/// sent nothing for 3 minutes has stalled (one sat 6 minutes, open and
+/// silent), and a cron run shouldn't wait out the local limit for it.
+const API_READ_TIMEOUT: Duration = Duration::from_secs(180);
 
-/// The one HTTP client every request goes through (model calls and model
-/// listings), so a stalled connection fails the call instead of hanging
-/// the run. A timeout is a transport error, which rig judges retryable,
-/// like a dropped connection.
+/// The client for model listings. Model calls get [`http`], with their
+/// provider's limit or the author's. A timeout is a transport error, which
+/// rig judges retryable, like a dropped connection.
 fn client() -> reqwest::Client {
-    client_with(CONNECT_TIMEOUT, READ_TIMEOUT)
+    client_with(CONNECT_TIMEOUT, LOCAL_READ_TIMEOUT)
 }
 
 fn client_with(connect: Duration, read: Duration) -> reqwest::Client {
@@ -74,6 +82,9 @@ struct Facts {
     /// The environment variable holding the command that prints the API
     /// key, if it needs one. The variable holds the command, never the key.
     key_command_env: Option<&'static str>,
+    /// How long a model call may go silent before it's given up on, unless
+    /// the author says otherwise.
+    read_timeout: Duration,
 }
 
 impl ProviderName {
@@ -85,16 +96,19 @@ impl ProviderName {
                 name: "anthropic",
                 reports_cost: false,
                 key_command_env: Some("FUSSYCAT_ANTHROPIC_KEY_COMMAND"),
+                read_timeout: API_READ_TIMEOUT,
             },
             Self::Ollama => Facts {
                 name: "ollama",
                 reports_cost: false,
                 key_command_env: None,
+                read_timeout: LOCAL_READ_TIMEOUT,
             },
             Self::Venice => Facts {
                 name: "venice",
                 reports_cost: true,
                 key_command_env: Some("FUSSYCAT_VENICE_KEY_COMMAND"),
+                read_timeout: API_READ_TIMEOUT,
             },
         }
     }
@@ -114,6 +128,14 @@ impl ProviderName {
     #[must_use]
     pub fn reports_cost(self) -> bool {
         self.facts().reports_cost
+    }
+
+    /// How long a model call may go silent before it's given up on (and
+    /// retried, like a dropped connection): 3 minutes for a hosted API, 10
+    /// for a model on your own hardware.
+    #[must_use]
+    pub fn read_timeout(self) -> Duration {
+        self.facts().read_timeout
     }
 
     /// The environment variable holding the command that prints this
@@ -211,19 +233,22 @@ impl std::fmt::Display for ModelRef {
 impl ModelRef {
     /// The provider for this model, with the `key` its
     /// [`key_command`](ProviderName::key_command_env) printed (which never
-    /// prints an empty one). A missing key is a usage error, found before
-    /// any model call.
+    /// prints an empty one). A call silent for `read_timeout` is given up
+    /// on; `None` is [the provider's own](ProviderName::read_timeout). A
+    /// missing key is a usage error, found before any model call.
     pub fn connect(
         &self,
         ollama_url: &str,
         key: Option<String>,
         retry: RetryPolicy,
+        read_timeout: Option<Duration>,
     ) -> Result<Adapter, String> {
         let key = || key.ok_or_else(|| self.provider.needs_a_key(self));
+        let http = http(read_timeout.unwrap_or(self.provider.read_timeout()));
         Ok(match self.provider {
-            ProviderName::Anthropic => anthropic::connect(key()?, &self.name, retry),
-            ProviderName::Ollama => ollama::connect(ollama_url, &self.name, retry),
-            ProviderName::Venice => venice::connect(key()?, &self.name, retry),
+            ProviderName::Anthropic => anthropic::connect(key()?, &self.name, retry, http),
+            ProviderName::Ollama => ollama::connect(ollama_url, &self.name, retry, http),
+            ProviderName::Venice => venice::connect(key()?, &self.name, retry, http),
         })
     }
 }
@@ -270,10 +295,20 @@ mod tests {
         );
     }
 
+    /// A hosted API answers in seconds, so it gets minutes; a model on
+    /// your own hardware may take many over a long reply.
+    #[test]
+    fn a_hosted_api_is_given_up_on_sooner_than_a_local_model() {
+        assert_eq!(ProviderName::Venice.read_timeout(), API_READ_TIMEOUT);
+        assert_eq!(ProviderName::Anthropic.read_timeout(), API_READ_TIMEOUT);
+        assert_eq!(ProviderName::Ollama.read_timeout(), LOCAL_READ_TIMEOUT);
+        assert!(API_READ_TIMEOUT < LOCAL_READ_TIMEOUT);
+    }
+
     #[test]
     fn venice_without_a_key_is_refused_before_any_call() {
         let venice: ModelRef = "venice:claude-haiku-5-5".parse().unwrap();
-        let Err(error) = venice.connect("http://unused", None, RetryPolicy::default()) else {
+        let Err(error) = venice.connect("http://unused", None, RetryPolicy::default(), None) else {
             panic!("connected without a key");
         };
         assert!(

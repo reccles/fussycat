@@ -15,12 +15,9 @@ use super::retry::Policy;
 /// none and its `-cloud` models are billed, so 0 would be a guess.
 struct Ollama;
 
+/// `http` is the client its calls go through: it sets their timeouts.
 #[must_use]
-pub fn connect(base_url: &str, model: &str, retry: Policy) -> Adapter {
-    with_http(base_url, model, retry, super::http())
-}
-
-fn with_http(base_url: &str, model: &str, retry: Policy, http: DynHttpClient) -> Adapter {
+pub fn connect(base_url: &str, model: &str, retry: Policy, http: DynHttpClient) -> Adapter {
     let client = OllamaConfig::new().with_base_url(base_url).connect(http);
     let model: rig_core::Model<Chat> = client.native_completion(model);
     Adapter::new(model, retry, Ollama)
