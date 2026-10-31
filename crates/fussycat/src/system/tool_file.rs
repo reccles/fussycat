@@ -8,13 +8,13 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use fussycat_core::toolbox::{Tool, ToolSpec, cap};
+use fussycat_core::toolbox::{Invocation, Tool, ToolSpec, cap};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::{Map, Number, Value, json};
 
 use super::is_tool_name;
-use super::process::{Ended, Limits, bounded, capture, isolated, output_of, seconds};
+use super::process::{Ended, Limits, bounded, capture, isolated, output, seconds};
 
 /// Help text past this many bytes is cut, visibly: it rides in every request.
 const HELP_LIMIT: usize = 8 * 1024;
@@ -357,12 +357,14 @@ impl Tool for ToolFile {
         &self.spec
     }
 
-    fn invoke(&self, arguments: &Value) -> Result<String, String> {
-        let argv = self.argv(arguments)?;
-        let (program, rest) = argv.split_first().ok_or("nothing to run")?;
-        let mut command = isolated(program, &self.env);
-        command.args(rest);
-        output_of(command, &argv.join(" "), self.limits)
+    fn invoke<'a>(&'a self, arguments: &'a Value) -> Invocation<'a> {
+        Box::pin(async move {
+            let argv = self.argv(arguments)?;
+            let (program, rest) = argv.split_first().ok_or("nothing to run")?;
+            let mut command = isolated(program, &self.env);
+            command.args(rest);
+            output(command, argv.join(" "), self.limits).await
+        })
     }
 }
 

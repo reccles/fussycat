@@ -201,12 +201,12 @@ impl Task {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quilt::{BlockName, Source, SourceError};
+    use crate::quilt::{BlockName, Fetch, Source};
 
     struct Empty;
     impl Source for Empty {
-        fn fetch(&self) -> Result<String, SourceError> {
-            Ok(String::new())
+        fn fetch(&self) -> Fetch<'_> {
+            Box::pin(std::future::ready(Ok(String::new())))
         }
     }
 

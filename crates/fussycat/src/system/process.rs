@@ -1,6 +1,8 @@
 //! Every child fussycat starts: built with a clean environment (or, for the
 //! key command alone, fussycat's own), then run with a timeout and a bounded
-//! read, so no command can hang a run or fill its memory.
+//! read, so no command can hang a run or fill its memory. Tools and live
+//! commands run off the async thread, and are killed if nobody waits for
+//! them any more.
 
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -9,6 +11,7 @@ use std::process::{Child, ExitStatus, Stdio};
 /// What [`isolated`] and [`inheriting`] build, for code that adds to one
 /// before it runs: the type, never a way to start a child elsewhere (S10).
 pub use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
@@ -86,12 +89,43 @@ impl Limits {
 /// carrying its status (or the timeout), stderr and stdout. `shown` names
 /// it in messages. Output past the cap is read and counted, not kept, so
 /// the cut note the model sees still says how much there was.
-pub fn output_of(command: Command, shown: &str, limits: Limits) -> Result<String, String> {
+///
+/// It runs on the runtime's blocking threads, so a host's other tasks go
+/// on while it does. Dropping the future before the command ends kills the
+/// command's group, as the timeout would: nothing is left running for a
+/// result nobody will read.
+pub async fn output(command: Command, shown: String, limits: Limits) -> Result<String, String> {
+    let abandoned = Abandoned::default();
+    let watched = Arc::clone(&abandoned.0);
+    tokio::task::spawn_blocking(move || output_of(command, &shown, limits, &watched))
+        .await
+        .unwrap_or_else(|error| std::panic::resume_unwind(error.into_panic()))
+}
+
+/// Raised when the future waiting on a command is dropped, so the thread
+/// running it kills it.
+#[derive(Default)]
+struct Abandoned(Arc<AtomicBool>);
+
+impl Drop for Abandoned {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+/// [`output`], on the calling thread. `abandoned` is checked as the
+/// command runs: once it's set, the command is killed.
+fn output_of(
+    command: Command,
+    shown: &str,
+    limits: Limits,
+    abandoned: &AtomicBool,
+) -> Result<String, String> {
     let Captured {
         ended,
         stdout,
         stderr,
-    } = capture(command, limits.keep, Some(limits.timeout))
+    } = capture_until(command, limits.keep, Some(limits.timeout), abandoned)
         .map_err(|error| format!("could not run `{shown}`: {error}"))?;
     let why = match ended {
         Ended::Exited(status) if status.success() => {
@@ -181,10 +215,18 @@ const POLL: Duration = Duration::from_millis(5);
 /// the timeout the whole group is killed: `sh -c` and anything it started.
 /// Without one (only the key command, which may be waiting on a person), it
 /// stays in fussycat's group, where it can reach the terminal.
-pub fn capture(
+pub fn capture(command: Command, keep: usize, timeout: Option<Duration>) -> io::Result<Captured> {
+    capture_until(command, keep, timeout, &AtomicBool::new(false))
+}
+
+/// [`capture`], killing the command (an `Interrupted` error) once
+/// `abandoned` is set. Only a command with a `timeout` is watched: one
+/// without (the key command) is waited for as it is.
+fn capture_until(
     mut command: Command,
     keep: usize,
     timeout: Option<Duration>,
+    abandoned: &AtomicBool,
 ) -> io::Result<Captured> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     // Held until the readers are done: a job the command left holding its
@@ -197,7 +239,7 @@ pub fn capture(
     let (done, finished) = channel();
     let stdout = read(child.stdout.take(), keep, done.clone())?;
     let stderr = read(child.stderr.take(), keep, done)?;
-    let ended = wait(&mut child, timeout)?;
+    let ended = wait(&mut child, timeout, abandoned)?;
     let grace = Instant::now() + DRAIN_GRACE;
     for _ in 0..2 {
         let left = grace.saturating_duration_since(Instant::now());
@@ -248,8 +290,8 @@ fn taken(stream: &Mutex<Stream>) -> Stream {
     std::mem::take(&mut *lock(stream))
 }
 
-/// Wait for `child`, killing it at the `timeout`.
-fn wait(child: &mut Child, timeout: Option<Duration>) -> io::Result<Ended> {
+/// Wait for `child`, killing it at the `timeout` or once it's `abandoned`.
+fn wait(child: &mut Child, timeout: Option<Duration>, abandoned: &AtomicBool) -> io::Result<Ended> {
     let Some(timeout) = timeout else {
         return child.wait().map(Ended::Exited);
     };
@@ -258,10 +300,17 @@ fn wait(child: &mut Child, timeout: Option<Duration>) -> io::Result<Ended> {
         if let Some(status) = child.try_wait()? {
             return Ok(Ended::Exited(status));
         }
-        if Instant::now() >= deadline {
+        let given_up = abandoned.load(Ordering::Relaxed);
+        if given_up || Instant::now() >= deadline {
             kill_group(child.id());
             let _ = child.kill(); // in case kill(1) couldn't
             child.wait()?;
+            if given_up {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "killed: nobody was waiting for it",
+                ));
+            }
             return Ok(Ended::TimedOut);
         }
         thread::sleep(POLL);

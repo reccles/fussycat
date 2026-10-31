@@ -79,7 +79,7 @@ classDiagram
     class Block { name, kind, content }
     class LiveBlock { source, fetched_at, freshness }
     class Log { +append(Entry) }
-    class Toolbox { +specs() +call(ToolCall) ToolResult }
+    class Toolbox { +specs() +call(ToolCall) async ToolResult }
     class Budget { max_turns, max_cost, max_tool_output, max_output_tokens, reasoning }
     class TurnReport
     Agent --> "1..*" Block : declares
@@ -146,8 +146,8 @@ budget, refresh every live block, render, call the provider, append the
 reply to the log, run any tool calls and append their results, report. A
 tool failure is a *result* the model sees, not a run failure.
 
-The turn and the run are separate operations. `Run::start` reads the stable
-sources and starts the log; `run.turn(provider, clock, reporter)` is one
+The turn and the run are separate operations. `Run::start` (async) reads
+the stable sources and starts the log; `run.turn(provider, clock, reporter)` is one
 turn, ending in nothing (the model called tools: go on) or an Outcome. The
 ports are lent to each turn, not held by the run. `execute` is the CLI's
 run: `start`, then `turn` until an Outcome, then the summary. A host that
@@ -298,6 +298,23 @@ Every command runs through one process runner, which bounds its output and
 time and kills its whole process group. The core is tested with fakes for
 every port: no network, no shell. Listing models (`--list-models`) is
 adapter-only: it isn't a run.
+
+`Provider`, `Source` and `Tool` are async, so a host running several agents
+never blocks its runtime on a tool call or a fetch, and the core still
+names no runtime: a port returns a future, the host drives it. `Provider`
+returns `impl Future + Send`, as the run takes it by generic. `Tool` and
+`Source` are held as trait objects (`Box<dyn Tool>` in the Toolbox, a
+`Box<dyn Source>` per block), so they return a **boxed future**
+(`Invocation`, `Fetch`): one allocation per call, nothing next to starting
+a process, and the loop still never branches on what kind of tool it
+holds. (Not an enum of tool kinds, which would name adapters in the core;
+not generics, which would give a toolbox one kind of tool.)
+
+**Dropping stops.** A host stops a run by dropping its future. Whatever
+call was in flight is dropped with it, and a tool's or source's contract
+is that dropping its future stops it: the process runner kills the
+command's group, as at a timeout. Calls in one turn run one at a time, in
+the order the model asked, and their results go back in that order.
 
 ## Security model
 

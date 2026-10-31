@@ -4,6 +4,7 @@ use fussycat_core::run::{Failure, Limit};
 use std::path::Path;
 
 use super::*;
+use crate::system::now::FetchNow;
 
 fn parse(argv: &[&str]) -> Result<Args, clap::Error> {
     Args::try_parse_from(std::iter::once("fussycat").chain(argv.iter().copied()))
@@ -79,7 +80,7 @@ fn every_agent_starts_with_the_core_prompt_then_the_authors_blocks() {
     let names: Vec<_> = stable.iter().map(|block| block.name.as_str()).collect();
     assert_eq!(names, [CORE_BLOCK, "brief.md"]);
     assert_eq!(
-        stable[0].source.fetch(),
+        stable[0].source.fetch_now(),
         Ok(core_prompt(Mechanisms::default()))
     );
 }
@@ -122,7 +123,7 @@ fn the_core_prompt_follows_the_grants() {
         tools: true,
         live: true,
     });
-    assert_eq!(core.source.fetch(), Ok(expected));
+    assert_eq!(core.source.fetch_now(), Ok(expected));
 }
 
 #[test]

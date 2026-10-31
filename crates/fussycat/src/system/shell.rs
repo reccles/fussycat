@@ -1,10 +1,10 @@
 use std::str::FromStr;
 
-use fussycat_core::quilt::{Source, SourceError};
-use fussycat_core::toolbox::{Tool, ToolSpec};
+use fussycat_core::quilt::{Fetch, Source, SourceError};
+use fussycat_core::toolbox::{Invocation, Tool, ToolSpec};
 
 use super::is_tool_name;
-use super::process::{Command, Ended, Limits, capture, inheriting, isolated, output_of};
+use super::process::{Command, Ended, Limits, capture, inheriting, isolated, output};
 
 /// Whose environment a shell gets: the two trust levels, side by side.
 #[derive(Clone, Copy)]
@@ -28,8 +28,8 @@ fn sh(command: &str, env: Env) -> Command {
 }
 
 /// Run the author's `command` in a clean environment, within `limits`.
-fn run(command: &str, limits: Limits) -> Result<String, String> {
-    output_of(sh(command, Env::Clean), command, limits)
+async fn run(command: &str, limits: Limits) -> Result<String, String> {
+    output(sh(command, Env::Clean), command.to_owned(), limits).await
 }
 
 /// The most of a key command's output that's kept: far more than any key.
@@ -120,8 +120,8 @@ impl CommandSource {
 }
 
 impl Source for CommandSource {
-    fn fetch(&self) -> Result<String, SourceError> {
-        run(&self.command, self.limits).map_err(SourceError)
+    fn fetch(&self) -> Fetch<'_> {
+        Box::pin(async { run(&self.command, self.limits).await.map_err(SourceError) })
     }
 }
 
@@ -184,8 +184,8 @@ impl Tool for ShellTool {
         &self.spec
     }
 
-    fn invoke(&self, _arguments: &serde_json::Value) -> Result<String, String> {
-        run(&self.command, self.limits)
+    fn invoke<'a>(&'a self, _arguments: &'a serde_json::Value) -> Invocation<'a> {
+        Box::pin(run(&self.command, self.limits))
     }
 }
 
@@ -194,6 +194,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
+    use crate::system::now::{FetchNow, InvokeNow, block_on};
     use serde_json::json;
 
     fn tool(grant: &str) -> ShellTool {
@@ -235,10 +236,10 @@ mod tests {
         assert!(std::env::var_os("CARGO_MANIFEST_DIR").is_some());
         let peek = "echo ${CARGO_MANIFEST_DIR:-unset}";
         assert_eq!(
-            tool(&format!("e={peek}")).invoke(&json!({})),
+            tool(&format!("e={peek}")).invoke_now(&json!({})),
             Ok("unset\n".into())
         );
-        assert_eq!(source(peek).fetch(), Ok("unset\n".into()));
+        assert_eq!(source(peek).fetch_now(), Ok("unset\n".into()));
     }
 
     /// The key command is the author's, so it sees fussycat's environment,
@@ -249,16 +250,16 @@ mod tests {
         let peek = "echo ${CARGO_MANIFEST_DIR:-unset}";
         assert_eq!(read_key(VARIABLE, peek), Ok(expected));
         assert_eq!(
-            tool(&format!("e={peek}")).invoke(&json!({})),
+            tool(&format!("e={peek}")).invoke_now(&json!({})),
             Ok("unset\n".into())
         );
-        assert_eq!(source(peek).fetch(), Ok("unset\n".into()));
+        assert_eq!(source(peek).fetch_now(), Ok("unset\n".into()));
     }
 
     #[test]
     fn runs_the_command() {
         assert_eq!(
-            tool("hi=echo hello").invoke(&json!({})),
+            tool("hi=echo hello").invoke_now(&json!({})),
             Ok("hello\n".into())
         );
     }
@@ -266,15 +267,15 @@ mod tests {
     #[test]
     fn a_failing_command_is_an_err_result_with_its_stderr() {
         let error = tool("bad=echo oops >&2; exit 3")
-            .invoke(&json!({}))
+            .invoke_now(&json!({}))
             .unwrap_err();
         assert!(error.contains("oops"), "{error}");
     }
 
     #[test]
     fn a_command_source_fetches_its_output_and_reports_failure() {
-        assert_eq!(source("echo tick").fetch(), Ok("tick\n".into()));
-        let error = source("exit 7").fetch().unwrap_err();
+        assert_eq!(source("echo tick").fetch_now(), Ok("tick\n".into()));
+        let error = source("exit 7").fetch_now().unwrap_err();
         assert!(error.0.contains("`exit 7` failed"), "{error}");
     }
 
@@ -290,7 +291,7 @@ mod tests {
     /// A hung tool is an `Err` result the model sees, and the run goes on.
     #[test]
     fn a_tool_past_its_timeout_is_an_err_result() {
-        let error = tool("hang=sleep 30").within(BRIEF).invoke(&json!({}));
+        let error = tool("hang=sleep 30").within(BRIEF).invoke_now(&json!({}));
         assert_eq!(error, Err("`sleep 30` timed out after 0.2s: ".into()));
     }
 
@@ -298,7 +299,9 @@ mod tests {
     /// (or stale), like any failing live command.
     #[test]
     fn a_live_command_past_its_timeout_fails_the_fetch() {
-        let error = CommandSource::new("sleep 30", BRIEF).fetch().unwrap_err();
+        let error = CommandSource::new("sleep 30", BRIEF)
+            .fetch_now()
+            .unwrap_err();
         assert!(error.0.contains("timed out after 0.2s"), "{error}");
     }
 
@@ -315,7 +318,7 @@ mod tests {
         let _ = std::fs::remove_file(&proof);
         let script = format!("(sleep 0.6; touch '{}') & wait", proof.display());
         let started = Instant::now();
-        let error = run(&script, BRIEF).unwrap_err();
+        let error = block_on(run(&script, BRIEF)).unwrap_err();
         assert!(error.contains("timed out after 0.2s"), "{error}");
         assert!(started.elapsed() < Duration::from_secs(2));
         // Well past when a surviving job would have written.
@@ -325,12 +328,45 @@ mod tests {
         assert!(!survived, "the job it started survived the timeout");
     }
 
+    /// A host that stops a run mid-call drops the call's future: the
+    /// command and the job it started are killed, as at a timeout, not
+    /// left running for a result nobody will read. Proved as above.
+    #[test]
+    fn dropping_a_tool_call_kills_what_it_started() {
+        let proof = std::env::temp_dir().join(format!("fussycat-abandoned-{}", std::process::id()));
+        let _ = std::fs::remove_file(&proof);
+        let job = tool(&format!(
+            "job=(sleep 0.6; touch '{}') & wait",
+            proof.display()
+        ));
+        let started = Instant::now();
+        block_on(async {
+            let arguments = json!({});
+            let call = job.invoke(&arguments);
+            // Long enough for sh to start the job, well before it writes;
+            // `timeout` drops the call when it gives up.
+            let gave_up = tokio::time::timeout(Duration::from_millis(200), call).await;
+            assert!(gave_up.is_err(), "the call was still running");
+        });
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "dropped promptly"
+        );
+        std::thread::sleep(Duration::from_millis(1200).saturating_sub(started.elapsed()));
+        let survived = proof.exists();
+        let _ = std::fs::remove_file(&proof);
+        assert!(!survived, "the job outlived the dropped call");
+    }
+
     /// The command is done, but a job it left behind holds stdout open:
     /// fussycat takes the command's output and moves on.
     #[test]
     fn a_job_left_holding_the_pipe_never_hangs_the_read() {
         let started = Instant::now();
-        assert_eq!(run("sleep 5 & echo hi", Limits::DEFAULT), Ok("hi\n".into()));
+        assert_eq!(
+            block_on(run("sleep 5 & echo hi", Limits::DEFAULT)),
+            Ok("hi\n".into())
+        );
         assert!(started.elapsed() < Duration::from_secs(2));
     }
 
@@ -340,7 +376,9 @@ mod tests {
             keep: 100,
             ..Limits::DEFAULT
         };
-        let content = CommandSource::new("seq 100000", limits).fetch().unwrap();
+        let content = CommandSource::new("seq 100000", limits)
+            .fetch_now()
+            .unwrap();
         assert!(content.len() <= 100, "{content}");
         assert!(content.starts_with("1\n2\n"), "{content}");
         assert!(
@@ -353,7 +391,7 @@ mod tests {
     fn arch_model_text_never_reaches_a_shell() {
         let echo = tool("echo=echo fixed");
         let hostile = json!({"command": "; touch /tmp/pwned", "args": ["$(id)"]});
-        assert_eq!(echo.invoke(&hostile), Ok("fixed\n".into()));
+        assert_eq!(echo.invoke_now(&hostile), Ok("fixed\n".into()));
     }
 
     const VARIABLE: &str = "FUSSYCAT_TEST_KEY_COMMAND";

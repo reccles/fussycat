@@ -2,6 +2,8 @@
 //! starting point, and only explicit grants put tools in it.
 
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
 
 use serde::Serialize;
 
@@ -33,12 +35,19 @@ pub struct ToolResult {
     pub output: Result<String, String>,
 }
 
+/// What [`Tool::invoke`] returns: the tool's output once it's done. Boxed,
+/// so a [`Toolbox`] can hold tools of any kind as `Box<dyn Tool>`.
+pub type Invocation<'a> = Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>>;
+
 /// A granted capability: a spec plus a way to invoke it. Shell tools and
 /// batteries implement this in the adapters, so the loop never branches on
 /// tool type. (The `ToolRunner` port in the domain spec.)
 pub trait Tool: Send + Sync {
     fn spec(&self) -> &ToolSpec;
-    fn invoke(&self, arguments: &serde_json::Value) -> Result<String, String>;
+
+    /// Run the tool. Dropping the future before it's done stops the tool:
+    /// whatever it started is ended, not left running.
+    fn invoke<'a>(&'a self, arguments: &'a serde_json::Value) -> Invocation<'a>;
 }
 
 /// The granted tools, keyed (and so sorted) by name: the order the model
@@ -71,10 +80,9 @@ impl Toolbox {
 
     /// Run `call` if its tool is granted. An ungranted name is an `Err`
     /// result, never an execution (eval B5).
-    #[must_use]
-    pub fn call(&self, call: &ToolCall) -> ToolResult {
+    pub async fn call(&self, call: &ToolCall) -> ToolResult {
         let output = match self.tools.get(&call.name) {
-            Some(tool) => tool.invoke(&call.arguments),
+            Some(tool) => tool.invoke(&call.arguments).await,
             None => Err(format!("no tool named `{}` is granted", call.name)),
         };
         ToolResult {
@@ -218,7 +226,7 @@ mod cap_tests {
 
 #[cfg(test)]
 pub(crate) mod fakes {
-    use super::{Tool, ToolCall, ToolSpec};
+    use super::{Invocation, Tool, ToolCall, ToolSpec};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A call to `name` with id `c1` and no arguments.
@@ -256,9 +264,9 @@ pub(crate) mod fakes {
             &self.spec
         }
 
-        fn invoke(&self, _arguments: &serde_json::Value) -> Result<String, String> {
+        fn invoke<'a>(&'a self, _arguments: &'a serde_json::Value) -> Invocation<'a> {
             self.invocations.fetch_add(1, Ordering::SeqCst);
-            Ok(self.answer.clone())
+            Box::pin(std::future::ready(Ok(self.answer.clone())))
         }
     }
 }
@@ -291,7 +299,7 @@ mod tests {
     #[test]
     fn a_granted_tool_runs() {
         let toolbox = Toolbox::grant(vec![Box::new(FixedTool::new("now", "noon"))]).unwrap();
-        let result = toolbox.call(&call("now"));
+        let result = crate::block_on(toolbox.call(&call("now")));
         assert_eq!(result.output, Ok("noon".into()));
         assert_eq!(result.call_id, "c1");
     }
@@ -300,7 +308,7 @@ mod tests {
     fn arch_deny_by_default() {
         let empty = Toolbox::default();
         assert_eq!(empty.specs(), Vec::<ToolSpec>::new());
-        let result = empty.call(&call("rm"));
+        let result = crate::block_on(empty.call(&call("rm")));
         assert_eq!(result.output, Err("no tool named `rm` is granted".into()));
     }
 }

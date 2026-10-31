@@ -15,7 +15,7 @@ fn a_host_appends_events_between_turns() {
     });
     let clock = TickingClock::new(0, 1000);
     let mut reporter = Recorder::default();
-    let mut run = Run::start(&agent, &task()).unwrap();
+    let mut run = block_on(Run::start(&agent, &task())).unwrap();
 
     let mut turn = |run: &mut Run| block_on(run.turn(&provider, &clock, &mut reporter));
     assert_eq!(turn(&mut run), Some(Outcome::Answered("Noon.".into())));

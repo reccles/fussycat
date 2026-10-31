@@ -1,6 +1,8 @@
 //! The run loop at its edges. These pin behaviour the rest of the suite
 //! takes for granted.
 
+use std::sync::atomic::AtomicBool;
+
 use super::*;
 use crate::toolbox::ToolCall;
 
@@ -146,4 +148,62 @@ fn tools_on_the_turn_that_reaches_the_cost_limit_never_run() {
     assert!(matches!(outcome, Outcome::Exhausted(Limit::MaxCost { .. })));
     assert_eq!(now.invocations.load(Ordering::SeqCst), 1);
     assert_eq!(reports.turns[1].skipped_tool_calls, 1);
+}
+
+/// A tool that never finishes, and says when its call is dropped.
+struct Hanging {
+    spec: ToolSpec,
+    dropped: Arc<AtomicBool>,
+}
+
+struct Dropped(Arc<AtomicBool>);
+
+impl Drop for Dropped {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Tool for Hanging {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    fn invoke<'a>(&'a self, _arguments: &'a serde_json::Value) -> Invocation<'a> {
+        let dropped = Dropped(Arc::clone(&self.dropped));
+        Box::pin(async move {
+            let _dropped = dropped;
+            std::future::pending().await
+        })
+    }
+}
+
+/// A host stops a run by dropping it. A tool call in flight is dropped
+/// with it, and a tool's contract is that dropping its call stops it.
+#[test]
+fn dropping_a_run_drops_the_tool_call_in_flight() {
+    let dropped = Arc::new(AtomicBool::new(false));
+    let hanging: Vec<Box<dyn Tool>> = vec![Box::new(Hanging {
+        spec: ToolSpec {
+            name: "now".into(),
+            description: "Never finishes.".into(),
+            parameters: serde_json::json!({"type": "object"}),
+        },
+        dropped: Arc::clone(&dropped),
+    })];
+    let agent = agent_with(vec![], hanging, 5);
+    let provider = FakeProvider::new(|_| Ok(calls("now")));
+    let clock = TickingClock::new(0, 1000);
+    let mut reporter = Recorder::default();
+    let task = task();
+    {
+        let mut run = std::pin::pin!(execute(&agent, &task, &provider, &clock, &mut reporter));
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(
+            run.as_mut().poll(&mut context).is_pending(),
+            "the tool runs"
+        );
+        assert!(!dropped.load(Ordering::SeqCst), "and is still running");
+    }
+    assert!(dropped.load(Ordering::SeqCst), "the call went with the run");
 }
