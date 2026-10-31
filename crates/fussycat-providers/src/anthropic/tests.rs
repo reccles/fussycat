@@ -1,14 +1,13 @@
 use serde_json::{Value, json};
 
 use super::*;
-use crate::providers::ProviderName;
-use crate::providers::testkit::{
+use crate::testkit::{
     NO_RETRIES, assert_golden, assert_wire_contract, capped_at, first_turn, messages_view,
-    paid_key, reasoning_at, second_turn, wire_bytes, with_live,
+    reasoning_at, second_turn, wire_bytes, with_live,
 };
-use fussycat_core::provider::{Provider, Reasoning};
+use fussycat_core::provider::Reasoning;
 
-/// The paid tests' model: the cheapest.
+/// The test model: the cheapest.
 const TEST_MODEL: &str = "claude-haiku-5-5";
 
 fn wire(request: &Request) -> rig_core::http_client::Bytes {
@@ -146,55 +145,4 @@ fn the_listing_keeps_the_context_window() {
             "anthropic:claude-sonnet-5-5 context=1000000",
         ]
     );
-}
-
-/// Costs real money (about a cent). Run on purpose:
-/// `FUSSYCAT_ANTHROPIC_KEY_COMMAND='<a command that prints the key>' cargo test -p fussycat anthropic -- --ignored`
-///
-/// The same request twice: the first writes the prefix to the cache, the
-/// second reads it back. The prefix must pass Haiku's cacheable minimum, so
-/// the stable block is padded. No cost is reported: Anthropic gives tokens.
-#[test]
-#[ignore = "paid: calls the Anthropic API"]
-fn paid_the_prefix_is_written_then_read_from_the_cache() {
-    let anthropic = connect(
-        paid_key(ProviderName::Anthropic),
-        TEST_MODEL,
-        Policy::default(),
-    );
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let mut request = first_turn();
-    // Unique per run, so an earlier run's cache can't answer the first call.
-    let run = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    request.stable[0].content = format!(
-        "Run {run}. Be terse.\n\n{}",
-        "Reference: the sky is blue, grass is green, snow is white.\n".repeat(400)
-    );
-    request.log = vec![fussycat_core::log::Entry::Task(
-        "Reply with the word ok.".into(),
-    )];
-    let write = runtime.block_on(anthropic.complete(&request)).unwrap();
-    let read = runtime.block_on(anthropic.complete(&request)).unwrap();
-    assert!(
-        write.usage.cache_write.is_some_and(|tokens| tokens > 0),
-        "{:?}",
-        write.usage
-    );
-    assert!(
-        read.usage.cache_read.is_some_and(|tokens| tokens > 0),
-        "{:?}",
-        read.usage
-    );
-    assert!(
-        read.usage.input >= read.usage.cache_read,
-        "input counts every prompt token, cached ones included: {:?}",
-        read.usage
-    );
-    assert_eq!(read.usage.cost_usd, None, "Anthropic reports no dollars");
 }

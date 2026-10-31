@@ -31,11 +31,12 @@ s3_no_provider_names_in_core() {
   rg -n -i 'anthropic|openai|ollama|venice|cache_control' crates/fussycat-core/src
 }
 s4_http_only_in_providers() {
-  rg -l 'reqwest|hyper|ureq' crates/fussycat/src | grep -v '/providers/'
+  rg -l 'reqwest|hyper|ureq' crates --glob '*.rs' --glob Cargo.toml |
+    grep -v '^crates/fussycat-providers/'
 }
 s5_printing_only_in_cli_and_reporters() {
-  rg -l '\b(e?print(ln)?)!|std::io::(stdout|stderr)' crates/fussycat/src |
-    grep -Ev '/(cli|reporters)/|/main\.rs$'
+  rg -l '\b(e?print(ln)?)!|std::io::(stdout|stderr)' crates/fussycat/src crates/fussycat-providers/src |
+    grep -Ev '^crates/fussycat/src/((cli|reporters)/|main\.rs$)'
 }
 s6_nothing_named_quilt() {
   grep -rn --include Cargo.toml -E '^name *= *".*quilt' crates Cargo.toml
@@ -44,8 +45,10 @@ s7_files_under_600_lines() {
   find crates -name '*.rs' -exec wc -l {} + | awk '$2 != "total" && $1 > 600'
 }
 s8_llm_library_stays_in_providers() {
-  rg -l '\brig_core::|\brig_agent::' crates | grep -v '/providers/'
+  rg -l '\brig_core::|\brig_agent::|rig-core|rig-reqwest' crates --glob '*.rs' --glob Cargo.toml |
+    grep -v '^crates/fussycat-providers/'
   rg -n 'rig-agent' --glob Cargo.toml .
+  rg -n '\bclap\b' crates/fussycat-providers
 }
 
 s9_shell_only_in_the_shell_adapter() {
@@ -53,6 +56,7 @@ s9_shell_only_in_the_shell_adapter() {
 }
 s10_children_start_only_in_process() {
   rg -n 'Command::new|std::process::Command' crates/fussycat/src | grep -v '/system/process\.rs:'
+  rg -n 'std::process|tokio::process|Command::new' crates/fussycat-providers/src
 }
 
 # The names are private too, so they live outside the repo: a file of

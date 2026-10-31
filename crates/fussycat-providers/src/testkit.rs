@@ -124,15 +124,6 @@ pub fn with_live(mut request: Request, content: &str) -> Request {
     request
 }
 
-/// A paid test's key, from the provider's key command; panics with how to
-/// set it.
-pub fn paid_key(provider: super::ProviderName) -> String {
-    let env = provider.key_command_env().expect("a provider with a key");
-    let command = std::env::var(env)
-        .unwrap_or_else(|_| panic!("set {env} to a command that prints the key to run paid tests"));
-    crate::system::read_key(env, &command).unwrap_or_else(|error| panic!("{error}"))
-}
-
 /// A provider on loopback that answers one request with `reply`, a JSON
 /// body. Its URL, and a handle that gives the request body it was sent.
 pub fn serve_once(reply: &Value) -> (String, std::thread::JoinHandle<String>) {

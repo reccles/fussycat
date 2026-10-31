@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/fussycat-core", "crates/fussycat"]
+members = ["crates/fussycat-core", "crates/fussycat-providers", "crates/fussycat"]
 resolver = "3"
 
 [workspace.package]
