@@ -18,7 +18,7 @@ use fussycat_core::toolbox::{Tool, Toolbox};
 
 mod mcp;
 
-use crate::reporters::{JsonlReporter, Reporters, StderrReporter, Verbosity, warn};
+use crate::reporters::{JsonlReporter, Reporters, StderrReporter, Verbosity, run_id, warn};
 use crate::system::{
     CommandSource, FileSource, Limits, ShellTool, ShellToolError, SystemClock, ToolFile,
     ToolFileError, read_key,
@@ -354,6 +354,7 @@ fn reporters(args: &Args, model: &ModelRef) -> Result<Reporters, Refused> {
             .map_err(|error| Refused::Failed(format!("--metrics {}: {error}", path.display())))?;
         reporters.push(JsonlReporter::new(
             file,
+            run_id(),
             SystemClock.now(),
             &model.to_string(),
         ));

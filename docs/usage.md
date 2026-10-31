@@ -155,7 +155,35 @@ line per turn and per run, ready for `jq`:
 ```sh
 # The share of input tokens served from the cache, across every run so far.
 jq -s 'map(select(.type == "summary").usage) | (map(.cache_read) | add) / (map(.input) | add)' runs.jsonl
+
+# Why the runs that didn't answer stopped.
+jq -r 'select(.type == "summary" and .outcome != "answered") | .reason.kind' runs.jsonl
 ```
+
+The format is a contract, versioned on every line. `version` goes up only
+when a field changes meaning or goes away; new fields can appear at any
+time, so ignore what you don't know. Each line is written in one go, so
+runs appending to one file at once never mix within a line.
+
+| Field | On | Means |
+|---|---|---|
+| `version` | every line | the format's version: `1` |
+| `type` | every line | `turn` or `summary` |
+| `run` | every line | this run's id, 16 hex digits, unique even for runs started together |
+| `started` | every line | when the run started, UTC, to the second |
+| `model` | every line | the `--model` value |
+| `turn`, `elapsed_ms`, `retries` | `turn` | the turn's number (from 1), its time, and the provider retries it took |
+| `usage` | both | `input`, `output`, `cache_read`, `cache_write` tokens and `cost_usd`; `null` when the provider didn't report it, never 0 |
+| `tool_calls`, `skipped_tool_calls` | `turn` | calls that ran, and calls not run because the budget ended the run |
+| `stop` | `turn` | `end`, `output_limit`, or `null` when the call failed |
+| `prefix` | `turn` | each block above the log as `{block, hash}`, to spot what broke the cache |
+| `live` | `turn` | each live block's `status` (`fresh`, `stale`, `failed`), `fetched_at` and `error` |
+| `turns` | `summary` | turns that got a reply |
+| `outcome` | `summary` | `answered`, `exhausted` or `failed` (the exit code says the same) |
+| `reason` | `summary` | why it didn't answer, by `kind`: `max_turns` (`turns`), `max_cost` (`cap_usd`, `spent_usd`), `provider` (`message`, `retries`), `source` (`block`, `error`), `cost_unreported`, `no_answer`, `only_reasoned`, `answer_cut_off`, `tool_calls_cut_off` (each with its `turn`). Absent when answered |
+| `detail` | `summary` | the same reason as a sentence, as stderr shows it |
+
+The answer itself is never in the metrics: it goes to stdout only.
 
 ## Providers and keys
 

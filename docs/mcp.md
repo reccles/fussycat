@@ -23,6 +23,7 @@ echo "Summarise open bugs labelled crash." |
 
 | Key | Means |
 |---|---|
+| `version` | optional: the file format, `1`. A file for a newer format is refused |
 | `name` | the server's name, and its tools' prefix: the model calls `github__get_issue`. Letters, digits, `_` and `-`, without `__` |
 | `run` | the program and its arguments, run directly, never through a shell |
 | `env` | variables passed on from fussycat's environment. The server starts with the same clean environment as every tool, so everything else stays behind |

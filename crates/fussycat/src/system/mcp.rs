@@ -27,9 +27,9 @@ use rmcp::{RoleClient, ServiceExt};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use super::is_tool_name;
 use super::process::{Limits, Server, isolated, seconds, serve};
 use super::tool_file::is_identifier;
+use super::{check_version, is_tool_name};
 
 /// Between a server's name and its tool's, in the name the model sees.
 const SEPARATOR: &str = "__";
@@ -64,6 +64,8 @@ impl McpError {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Declaration {
+    /// The format's version ([`FILE_VERSION`](super::FILE_VERSION)).
+    version: Option<u32>,
     name: String,
     run: Vec<String>,
     #[serde(default)]
@@ -137,6 +139,7 @@ impl McpServer {
 
     fn parse(text: &str, limits: Limits) -> Result<Self, String> {
         let decl: Declaration = toml::from_str(text).map_err(|error| error.to_string())?;
+        check_version(decl.version)?;
         if !is_tool_name(&decl.name) || decl.name.contains(SEPARATOR) {
             return Err(format!(
                 "name `{}` must be 1-64 characters of a-z, A-Z, 0-9, `_` or `-`, without `{SEPARATOR}`",

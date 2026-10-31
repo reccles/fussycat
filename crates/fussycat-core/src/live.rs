@@ -24,12 +24,30 @@ pub enum Freshness {
     Failed { error: SourceError },
 }
 
+/// A live block's state after a fetch, as reports name it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Status {
+    Fresh,
+    Stale,
+    Failed,
+}
+
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Fresh => "fresh",
+            Self::Stale => "stale",
+            Self::Failed => "failed",
+        })
+    }
+}
+
 /// One live block's fetch, as the turn report shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LiveReport {
     pub block: BlockName,
-    /// `fresh`, `stale` or `failed`.
-    pub status: &'static str,
+    pub status: Status,
     /// When the rendered content was fetched (absent when failed).
     pub fetched_at: Option<Timestamp>,
     pub error: Option<String>,
@@ -106,11 +124,11 @@ pub(crate) fn render(name: &BlockName, freshness: &Freshness, now: Timestamp) ->
 
 pub(crate) fn report(name: &BlockName, freshness: &Freshness) -> LiveReport {
     let (status, fetched_at, error) = match freshness {
-        Freshness::Fresh { fetched_at, .. } => ("fresh", Some(*fetched_at), None),
+        Freshness::Fresh { fetched_at, .. } => (Status::Fresh, Some(*fetched_at), None),
         Freshness::Stale {
             fetched_at, error, ..
-        } => ("stale", Some(*fetched_at), Some(error.to_string())),
-        Freshness::Failed { error } => ("failed", None, Some(error.to_string())),
+        } => (Status::Stale, Some(*fetched_at), Some(error.to_string())),
+        Freshness::Failed { error } => (Status::Failed, None, Some(error.to_string())),
     };
     LiveReport {
         block: name.clone(),
@@ -167,7 +185,7 @@ mod tests {
             render(live.name(), &freshness, at(0)).content,
             "<live name=\"date -u\" status=\"failed\">\nfetch failed: boom\n</live>"
         );
-        assert_eq!(report(live.name(), &freshness).status, "failed");
+        assert_eq!(report(live.name(), &freshness).status, Status::Failed);
     }
 
     #[test]
@@ -187,7 +205,7 @@ mod tests {
         let reported = report(live.name(), &stale);
         assert_eq!(
             (reported.status, reported.error),
-            ("stale", Some("boom".into()))
+            (Status::Stale, Some("boom".into()))
         );
     }
 

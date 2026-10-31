@@ -4,8 +4,6 @@ use fussycat_core::provider::Stop;
 use fussycat_core::report::{Reporter, RunSummary, TurnReport, Usage};
 use fussycat_core::run::Outcome;
 
-use super::outcome_name;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verbosity {
     /// Nothing (`-q`).
@@ -86,7 +84,7 @@ fn turn_line(report: &TurnReport) -> String {
 fn summary_line(summary: &RunSummary, outcome: &Outcome) -> String {
     let line = format!(
         "{} after {} turn{} in {}{}",
-        outcome_name(outcome),
+        outcome.name(),
         summary.turns,
         if summary.turns == 1 { "" } else { "s" },
         seconds(summary.elapsed_ms),
@@ -273,7 +271,7 @@ mod tests {
             prefix: vec![],
             live: vec![LiveReport {
                 block: BlockName::new("date -u").unwrap(),
-                status: "stale",
+                status: fussycat_core::live::Status::Stale,
                 fetched_at: None,
                 error: Some("boom".into()),
             }],

@@ -31,6 +31,19 @@ description = "Recipe name"
 pattern = "^[a-z ]+$"
 "#;
 
+/// `version = 1` or none; a newer format is refused, not half-read.
+#[test]
+fn the_file_format_is_versioned() {
+    let echo = "name = \"echo\"\ndescription = \"Echoes.\"\nrun = [\"echo\"]";
+    tool(&format!("version = 1\n{echo}"));
+    tool(echo);
+    let newer = problem(&format!("version = 2\n{echo}"));
+    assert!(
+        newer.contains("`version = 2` is newer than this fussycat reads (1)"),
+        "{newer}"
+    );
+}
+
 #[test]
 fn typed_inputs_become_a_strict_schema_in_a_fixed_order() {
     let scale = tool(SCALE);
