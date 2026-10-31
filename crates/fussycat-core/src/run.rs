@@ -89,7 +89,7 @@ pub async fn execute(
     reporter: &mut impl Reporter,
 ) -> Outcome {
     let started = clock.now();
-    let (outcome, run) = match Run::start(agent, task) {
+    let (outcome, run) = match Run::start(agent, task).await {
         Ok(mut run) => loop {
             if let Some(outcome) = run.turn(provider, clock, reporter).await {
                 break (outcome, Some(run));
@@ -127,10 +127,10 @@ pub struct Run<'a> {
 impl<'a> Run<'a> {
     /// Read the stable sources, once and never again (framework L4), and
     /// start the log with `task`.
-    pub fn start(agent: &'a Agent, task: &Task) -> Result<Self, Failure> {
+    pub async fn start(agent: &'a Agent, task: &Task) -> Result<Self, Failure> {
         Ok(Self {
             agent,
-            quilt: Quilt::new(read_stable(agent)?, Log::starting_with(task.as_str())),
+            quilt: Quilt::new(read_stable(agent).await?, Log::starting_with(task.as_str())),
             live: agent.blocks(Kind::Live).map(LiveBlock::new).collect(),
             turns: 0,
             usage: None,
@@ -205,7 +205,7 @@ impl<'a> Run<'a> {
         reporter: &mut impl Reporter,
     ) -> Option<Outcome> {
         let started = clock.now();
-        let (live_blocks, live_reports) = refresh(&mut self.live, clock);
+        let (live_blocks, live_reports) = refresh(&mut self.live, clock).await;
         let request = Request {
             max_output_tokens: self.agent.budget.max_output_tokens(),
             reasoning: self.agent.budget.reasoning(),
@@ -246,20 +246,15 @@ impl<'a> Run<'a> {
             Step::Fail(failure) => (Some(Outcome::Failed(failure)), false),
         };
         let asked = response.turn.tool_calls().count();
-        let results: Vec<ToolResult> = if calls_tools && ended.is_none() {
-            response
-                .turn
-                .tool_calls()
-                .map(|call| {
-                    self.agent
-                        .toolbox
-                        .call(call)
-                        .capped(self.agent.budget.max_tool_output())
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+        // One at a time, in the order the model asked: a call may depend on
+        // the one before it, and results go back in call order.
+        let mut results: Vec<ToolResult> = Vec::new();
+        if calls_tools && ended.is_none() {
+            for call in response.turn.tool_calls() {
+                let result = self.agent.toolbox.call(call).await;
+                results.push(result.capped(self.agent.budget.max_tool_output()));
+            }
+        }
         self.quilt.append(Entry::Assistant(response.turn));
         let tool_calls = results.len();
         if tool_calls > 0 {
@@ -280,23 +275,21 @@ impl<'a> Run<'a> {
     }
 }
 
-/// Stable sources are read once, at the start of a run (framework L4).
-fn read_stable(agent: &Agent) -> Result<Vec<Block>, Failure> {
-    agent
-        .blocks(Kind::Stable)
-        .map(|decl| {
-            decl.source
-                .fetch()
-                .map(|content| Block {
-                    name: decl.name.clone(),
-                    content,
-                })
-                .map_err(|error| Failure::Source {
-                    block: decl.name.clone(),
-                    error,
-                })
-        })
-        .collect()
+/// Stable sources are read once, at the start of a run (framework L4), in
+/// layout order.
+async fn read_stable(agent: &Agent) -> Result<Vec<Block>, Failure> {
+    let mut blocks = Vec::new();
+    for decl in agent.blocks(Kind::Stable) {
+        let content = decl.source.fetch().await.map_err(|error| Failure::Source {
+            block: decl.name.clone(),
+            error,
+        })?;
+        blocks.push(Block {
+            name: decl.name.clone(),
+            content,
+        });
+    }
+    Ok(blocks)
 }
 
 /// What a reply means for the run. This is the rule for what an answer is:
@@ -328,19 +321,18 @@ impl Step {
     }
 }
 
-/// Fetch every live block (framework `refresh`). Never fails: a failed
-/// fetch renders stale or failed instead.
-fn refresh(live: &mut [LiveBlock<'_>], clock: &impl Clock) -> (Vec<Block>, Vec<LiveReport>) {
-    live.iter_mut()
-        .map(|block| {
-            let now = clock.now();
-            let freshness = block.refresh(now);
-            (
-                live::render(block.name(), &freshness, now),
-                live::report(block.name(), &freshness),
-            )
-        })
-        .unzip()
+/// Fetch every live block (framework `refresh`), one at a time in layout
+/// order. Never fails: a failed fetch renders stale or failed instead.
+async fn refresh(live: &mut [LiveBlock<'_>], clock: &impl Clock) -> (Vec<Block>, Vec<LiveReport>) {
+    let mut blocks = Vec::with_capacity(live.len());
+    let mut reports = Vec::with_capacity(live.len());
+    for block in live.iter_mut() {
+        let now = clock.now();
+        let freshness = block.refresh(now).await;
+        blocks.push(live::render(block.name(), &freshness, now));
+        reports.push(live::report(block.name(), &freshness));
+    }
+    (blocks, reports)
 }
 
 #[cfg(test)]

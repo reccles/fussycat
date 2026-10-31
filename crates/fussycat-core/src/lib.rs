@@ -17,3 +17,14 @@ pub mod quilt;
 pub mod report;
 pub mod run;
 pub mod toolbox;
+
+/// The test fakes are always ready, so polling once is enough: no runtime.
+#[cfg(test)]
+fn block_on<F: Future>(future: F) -> F::Output {
+    let mut future = std::pin::pin!(future);
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    match future.as_mut().poll(&mut context) {
+        std::task::Poll::Ready(output) => output,
+        std::task::Poll::Pending => panic!("fakes never wait"),
+    }
+}

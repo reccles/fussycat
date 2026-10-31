@@ -1,4 +1,5 @@
 use super::*;
+use crate::system::now::InvokeNow;
 use serde_json::json;
 
 fn tool(text: &str) -> ToolFile {
@@ -46,7 +47,7 @@ fn typed_inputs_become_a_strict_schema_in_a_fixed_order() {
 fn inputs_fill_their_placeholders_as_whole_arguments() {
     let scale = tool(SCALE);
     let call = json!({"recipe": "pancakes", "servings": 4});
-    assert_eq!(scale.invoke(&call), Ok("pancakes|4".into()));
+    assert_eq!(scale.invoke_now(&call), Ok("pancakes|4".into()));
 }
 
 #[test]
@@ -61,7 +62,10 @@ type = "string"
 "#,
     );
     let hostile = "; touch /tmp/fussycat-pwned $(id) `id` | cat";
-    assert_eq!(echo.invoke(&json!({"text": hostile})), Ok(hostile.into()));
+    assert_eq!(
+        echo.invoke_now(&json!({"text": hostile})),
+        Ok(hostile.into())
+    );
 }
 
 /// A tool with one input `{text}`, declared by `input` (the TOML lines
@@ -77,23 +81,23 @@ fn arch_model_text_never_becomes_an_option() {
     let echo = echo("type = \"string\"");
     for option in ["--upload-pack=touch /tmp/fussycat-pwned", "-o/tmp/x", "-"] {
         assert_eq!(
-            echo.invoke(&json!({"text": option})),
+            echo.invoke_now(&json!({"text": option})),
             Err("`text` can't start with `-`: the program would read it as an option. Rephrase it without the leading `-`.".into()),
             "{option}"
         );
     }
-    assert_eq!(echo.invoke(&json!({"text": "a -b"})), Ok("a -b".into()));
+    assert_eq!(echo.invoke_now(&json!({"text": "a -b"})), Ok("a -b".into()));
 }
 
 #[test]
 fn an_input_can_allow_a_leading_dash() {
     let flag = echo("type = \"string\"\nallow_leading_dash = true");
     assert_eq!(
-        flag.invoke(&json!({"text": "--version"})),
+        flag.invoke_now(&json!({"text": "--version"})),
         Ok("--version".into())
     );
     let choice = echo("type = \"string\"\nenum = [\"-l\", \"-a\"]\nallow_leading_dash = true");
-    assert_eq!(choice.invoke(&json!({"text": "-l"})), Ok("-l".into()));
+    assert_eq!(choice.invoke_now(&json!({"text": "-l"})), Ok("-l".into()));
 }
 
 /// `-5` is a value, not an option: numbers are typed, so they can't carry
@@ -101,15 +105,15 @@ fn an_input_can_allow_a_leading_dash() {
 #[test]
 fn a_negative_number_is_a_value() {
     assert_eq!(
-        echo("type = \"integer\"").invoke(&json!({"text": -5})),
+        echo("type = \"integer\"").invoke_now(&json!({"text": -5})),
         Ok("-5".into())
     );
     assert_eq!(
-        echo("type = \"number\"").invoke(&json!({"text": -1.5})),
+        echo("type = \"number\"").invoke_now(&json!({"text": -1.5})),
         Ok("-1.5".into())
     );
     assert_eq!(
-        echo("type = \"integer\"\nminimum = 0").invoke(&json!({"text": -5})),
+        echo("type = \"integer\"\nminimum = 0").invoke_now(&json!({"text": -5})),
         Err("`text` must be at least 0".into())
     );
 }
@@ -120,12 +124,12 @@ fn a_negative_number_is_a_value() {
 fn a_pattern_matches_the_whole_value() {
     let word = echo("type = \"string\"\npattern = \"[a-z]+\"\nallow_leading_dash = true");
     assert_eq!(
-        word.invoke(&json!({"text": "pancakes"})),
+        word.invoke_now(&json!({"text": "pancakes"})),
         Ok("pancakes".into())
     );
     for partial in ["rm -rf /", "-rf /; x", "x\n-y"] {
         assert_eq!(
-            word.invoke(&json!({"text": partial})),
+            word.invoke_now(&json!({"text": partial})),
             Err("`text` must match the pattern ^(?:[a-z]+)$".into()),
             "{partial:?}"
         );
@@ -136,14 +140,14 @@ fn a_pattern_matches_the_whole_value() {
         "the model sees the pattern the guard uses"
     );
     let either = echo("type = \"string\"\npattern = \"cat|dog\"");
-    assert!(either.invoke(&json!({"text": "dog"})).is_ok());
-    assert!(either.invoke(&json!({"text": "catapult"})).is_err());
+    assert!(either.invoke_now(&json!({"text": "dog"})).is_ok());
+    assert!(either.invoke_now(&json!({"text": "catapult"})).is_err());
 }
 
 #[test]
 fn arguments_are_checked_before_anything_runs() {
     let scale = tool(SCALE);
-    let error = |call: Value| scale.invoke(&call).unwrap_err();
+    let error = |call: Value| scale.invoke_now(&call).unwrap_err();
     assert_eq!(
         error(json!({"recipe": "pancakes"})),
         "missing argument `servings`"
@@ -189,11 +193,11 @@ type = "boolean"
 "#,
     );
     assert_eq!(
-        pick.invoke(&json!({"size": "large", "hot": true})),
+        pick.invoke_now(&json!({"size": "large", "hot": true})),
         Ok("large true".into())
     );
     assert_eq!(
-        pick.invoke(&json!({"size": "huge", "hot": true})),
+        pick.invoke_now(&json!({"size": "huge", "hot": true})),
         Err("`size` must be one of \"small\", \"large\"".into())
     );
 }
@@ -213,11 +217,11 @@ fn help_text_describes_the_tool_and_the_model_supplies_the_arguments() {
     );
     assert_eq!(show.spec().parameters["required"], json!(["args"]));
     assert_eq!(
-        show.invoke(&json!({"args": ["a b", "$(id)"]})),
+        show.invoke_now(&json!({"args": ["a b", "$(id)"]})),
         Ok("[a b][$(id)]".into())
     );
     assert_eq!(
-        show.invoke(&json!({"args": "a b"})),
+        show.invoke_now(&json!({"args": "a b"})),
         Err("`args` must be a list of strings".into())
     );
 }
@@ -226,7 +230,7 @@ fn help_text_describes_the_tool_and_the_model_supplies_the_arguments() {
 #[test]
 fn the_broad_shape_passes_options_through() {
     assert_eq!(
-        tool(BROAD).invoke(&json!({"args": ["--version", "-o/tmp/x"]})),
+        tool(BROAD).invoke_now(&json!({"args": ["--version", "-o/tmp/x"]})),
         Ok("[--version][-o/tmp/x]".into())
     );
 }
@@ -274,7 +278,7 @@ fn only_variables_the_file_names_reach_the_program() {
         tool(&format!(
             "name = \"x\"\ndescription = \"d\"\nrun = [\"sh\", \"-c\", \"echo ${{{PRESENT}:-unset}}\"]\n{env}"
         ))
-        .invoke(&json!({}))
+        .invoke_now(&json!({}))
         .unwrap()
     };
     assert_eq!(printenv(""), "unset\n", "not passed unless named");
@@ -455,9 +459,9 @@ description = "d"
 run = ["printf", "%s", "{a: .b}"]
 "#,
     );
-    assert_eq!(jq.invoke(&json!({})), Ok("{a: .b}".into()));
+    assert_eq!(jq.invoke_now(&json!({})), Ok("{a: .b}".into()));
     assert_eq!(
-        jq.invoke(&json!({"x": 1})),
+        jq.invoke_now(&json!({"x": 1})),
         Err("unknown argument `x`: this tool takes no arguments".into())
     );
 }
@@ -471,7 +475,7 @@ description = "d"
 run = ["sh", "-c", "echo oops >&2; exit 3"]
 "#,
     );
-    let error = fail.invoke(&json!(null)).unwrap_err();
+    let error = fail.invoke_now(&json!(null)).unwrap_err();
     assert!(error.contains("oops"), "{error}");
 }
 

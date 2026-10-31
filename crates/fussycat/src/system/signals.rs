@@ -50,8 +50,8 @@ impl Signal {
 /// From now on, at the first stop signal: kill every running command's
 /// group, start no more, and hand the signal to `stop`, which ends fussycat
 /// (it can't return: there's no [`Infallible`] to return). The signals are
-/// watched on a thread of their own, with its own runtime, because a
-/// command blocks the run's thread while it runs.
+/// watched on a thread of their own, with its own runtime, so they're
+/// heard whatever the run's runtime is doing.
 pub fn on_stop_signal(stop: impl FnOnce(Signal) -> Infallible + Send + 'static) -> io::Result<()> {
     let watcher = Builder::new_current_thread().enable_io().build()?;
     // Registered before this returns, so no command starts unwatched.

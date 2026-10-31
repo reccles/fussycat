@@ -3,6 +3,9 @@
 //! Kinds so far: stable, the log and live. Pinned blocks arrive with the
 //! feature that needs them (INTENT principle 7).
 
+use std::future::Future;
+use std::pin::Pin;
+
 use serde::Serialize;
 
 use crate::agent::DeclarationError;
@@ -47,10 +50,15 @@ pub struct Block {
 #[error("{0}")]
 pub struct SourceError(pub String);
 
+/// What [`Source::fetch`] returns: the content once it's read. Boxed, so a
+/// declaration can hold a source of any kind as `Box<dyn Source>`.
+pub type Fetch<'a> = Pin<Box<dyn Future<Output = Result<String, SourceError>> + Send + 'a>>;
+
 /// Where a block's content comes from (a file, a command). Implemented by
-/// the adapters; the core only asks for content.
+/// the adapters; the core only asks for content. Dropping the future
+/// before it's done stops the fetch: a command it started is ended.
 pub trait Source: Send + Sync {
-    fn fetch(&self) -> Result<String, SourceError>;
+    fn fetch(&self) -> Fetch<'_>;
 }
 
 /// Literal content: the framework's standard Text block, e.g. fussycat's core
@@ -58,8 +66,8 @@ pub trait Source: Send + Sync {
 pub struct Text(pub String);
 
 impl Source for Text {
-    fn fetch(&self) -> Result<String, SourceError> {
-        Ok(self.0.clone())
+    fn fetch(&self) -> Fetch<'_> {
+        Box::pin(std::future::ready(Ok(self.0.clone())))
     }
 }
 
@@ -140,8 +148,9 @@ mod tests {
     #[test]
     fn a_text_source_gives_its_text_every_time() {
         let text = Text("be terse".into());
-        assert_eq!(text.fetch(), Ok("be terse".into()));
-        assert_eq!(text.fetch(), text.fetch());
+        let fetch = || crate::block_on(text.fetch());
+        assert_eq!(fetch(), Ok("be terse".into()));
+        assert_eq!(fetch(), fetch());
     }
 
     #[test]

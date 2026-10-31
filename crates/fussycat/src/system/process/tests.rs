@@ -18,6 +18,7 @@ fn child_env(passed: &[&str]) -> String {
         isolated_from("env", &passed, parent),
         "env",
         Limits::DEFAULT,
+        &AtomicBool::new(false),
     )
     .unwrap()
 }
@@ -56,7 +57,12 @@ fn run(argv: &[&str], timeout: Duration, keep: usize) -> (Result<String, String>
     let mut command = isolated(argv[0], &[]);
     command.args(&argv[1..]);
     let started = Instant::now();
-    let result = output_of(command, &argv.join(" "), Limits { timeout, keep });
+    let result = output_of(
+        command,
+        &argv.join(" "),
+        Limits { timeout, keep },
+        &AtomicBool::new(false),
+    );
     (result, started.elapsed())
 }
 

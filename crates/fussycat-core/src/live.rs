@@ -49,8 +49,8 @@ impl<'a> LiveBlock<'a> {
         }
     }
 
-    pub(crate) fn refresh(&mut self, now: Timestamp) -> Freshness {
-        match self.decl.source.fetch() {
+    pub(crate) async fn refresh(&mut self, now: Timestamp) -> Freshness {
+        match self.decl.source.fetch().await {
             Ok(content) => {
                 self.last_good = Some((content.clone(), now));
                 Freshness::Fresh {
@@ -130,15 +130,15 @@ fn escape_attribute(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quilt::{Kind, Source};
+    use crate::quilt::{Fetch, Kind, Source};
     use std::sync::Mutex;
 
     /// Hands out scripted fetch results in order.
     struct Script(Mutex<Vec<Result<String, SourceError>>>);
 
     impl Source for Script {
-        fn fetch(&self) -> Result<String, SourceError> {
-            self.0.lock().unwrap().remove(0)
+        fn fetch(&self) -> Fetch<'_> {
+            Box::pin(std::future::ready(self.0.lock().unwrap().remove(0)))
         }
     }
 
@@ -162,7 +162,7 @@ mod tests {
     fn a_fetch_that_never_succeeded_renders_failed() {
         let decl = decl(vec![Err("boom")]);
         let mut live = LiveBlock::new(&decl);
-        let freshness = live.refresh(at(0));
+        let freshness = crate::block_on(live.refresh(at(0)));
         assert_eq!(
             render(live.name(), &freshness, at(0)).content,
             "<live name=\"date -u\" status=\"failed\">\nfetch failed: boom\n</live>"
@@ -174,12 +174,12 @@ mod tests {
     fn a_failed_refresh_keeps_the_last_good_content_and_says_how_old_it_is() {
         let decl = decl(vec![Ok("noon\n"), Err("boom")]);
         let mut live = LiveBlock::new(&decl);
-        let fresh = live.refresh(at(0));
+        let fresh = crate::block_on(live.refresh(at(0)));
         assert_eq!(
             render(live.name(), &fresh, at(0)).content,
             "<live name=\"date -u\" fetched_at=\"1970-01-01T00:00:00Z\">\nnoon\n</live>"
         );
-        let stale = live.refresh(at(45));
+        let stale = crate::block_on(live.refresh(at(45)));
         assert_eq!(
             render(live.name(), &stale, at(45)).content,
             "<live name=\"date -u\" fetched_at=\"1970-01-01T00:00:00Z\" status=\"stale\" age=\"45s\">\nrefresh failed: boom\nnoon\n</live>"

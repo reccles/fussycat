@@ -24,3 +24,38 @@ fn is_tool_name(name: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
+
+/// Tools and sources run to the end, for tests: a runtime per call.
+#[cfg(test)]
+pub(crate) mod now {
+    use fussycat_core::quilt::{Source, SourceError};
+    use fussycat_core::toolbox::Tool;
+
+    pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    pub(crate) trait InvokeNow {
+        fn invoke_now(&self, arguments: &serde_json::Value) -> Result<String, String>;
+    }
+
+    impl<T: Tool + ?Sized> InvokeNow for T {
+        fn invoke_now(&self, arguments: &serde_json::Value) -> Result<String, String> {
+            block_on(self.invoke(arguments))
+        }
+    }
+
+    pub(crate) trait FetchNow {
+        fn fetch_now(&self) -> Result<String, SourceError>;
+    }
+
+    impl<T: Source + ?Sized> FetchNow for T {
+        fn fetch_now(&self) -> Result<String, SourceError> {
+            block_on(self.fetch())
+        }
+    }
+}

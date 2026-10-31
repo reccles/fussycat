@@ -3,13 +3,14 @@ use std::sync::{Arc, Mutex};
 
 use super::*;
 use crate::agent::Budget;
+use crate::block_on;
 use crate::clock::fakes::TickingClock;
 use crate::log::{AssistantTurn, Part};
 use crate::provider::{Request, Response, Stop};
-use crate::quilt::{BlockDecl, Source};
+use crate::quilt::{BlockDecl, Fetch, Source};
 use crate::report::fakes::Recorder;
 use crate::toolbox::fakes::{FixedTool, call};
-use crate::toolbox::{Tool, ToolSpec, Toolbox};
+use crate::toolbox::{Invocation, Tool, ToolSpec, Toolbox};
 
 /// What counts as an answer: empty and cut-off replies.
 mod answers;
@@ -100,9 +101,9 @@ impl<F: Fn(usize) -> Result<AssistantTurn, ProviderError> + Sync> Provider for F
 struct CountingSource(Arc<AtomicUsize>);
 
 impl Source for CountingSource {
-    fn fetch(&self) -> Result<String, SourceError> {
+    fn fetch(&self) -> Fetch<'_> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Ok("be terse".into())
+        Box::pin(std::future::ready(Ok("be terse".into())))
     }
 }
 
@@ -124,30 +125,21 @@ impl Counter {
 }
 
 impl Source for Counter {
-    fn fetch(&self) -> Result<String, SourceError> {
+    fn fetch(&self) -> Fetch<'_> {
         let n = self.fetches.fetch_add(1, Ordering::SeqCst) + 1;
-        if self.fail_on.contains(&n) {
-            return Err(SourceError(format!("fetch {n} failed")));
-        }
-        Ok(format!("{}-{n}", self.prefix))
+        Box::pin(std::future::ready(if self.fail_on.contains(&n) {
+            Err(SourceError(format!("fetch {n} failed")))
+        } else {
+            Ok(format!("{}-{n}", self.prefix))
+        }))
     }
 }
 
 struct BrokenSource;
 
 impl Source for BrokenSource {
-    fn fetch(&self) -> Result<String, SourceError> {
-        Err(SourceError("no such file".into()))
-    }
-}
-
-/// The fakes are always ready, so polling once is enough: no runtime.
-fn block_on<F: Future>(future: F) -> F::Output {
-    let mut future = std::pin::pin!(future);
-    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
-    match future.as_mut().poll(&mut context) {
-        std::task::Poll::Ready(output) => output,
-        std::task::Poll::Pending => panic!("fakes never wait"),
+    fn fetch(&self) -> Fetch<'_> {
+        Box::pin(std::future::ready(Err(SourceError("no such file".into()))))
     }
 }
 
@@ -452,7 +444,7 @@ impl Tool for SharedTool {
         self.0.spec()
     }
 
-    fn invoke(&self, arguments: &serde_json::Value) -> Result<String, String> {
+    fn invoke<'a>(&'a self, arguments: &'a serde_json::Value) -> Invocation<'a> {
         self.0.invoke(arguments)
     }
 }
