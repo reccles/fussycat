@@ -21,7 +21,7 @@ mod mcp;
 use crate::reporters::{JsonlReporter, Reporters, StderrReporter, Verbosity, run_id, warn};
 use crate::system::{
     CommandSource, FileSource, Limits, ShellTool, ShellToolError, SystemClock, ToolFile,
-    ToolFileError, read_key,
+    ToolFileError, keep_inherited_fds_from_children, read_key,
 };
 #[cfg(unix)]
 use crate::system::{Signal, on_stop_signal};
@@ -178,6 +178,7 @@ struct Args {
 }
 
 pub async fn main() -> ExitCode {
+    keep_inherited_fds_from_children();
     let args = Args::parse();
     #[cfg(unix)]
     if let Err(error) = on_stop_signal(stopped) {

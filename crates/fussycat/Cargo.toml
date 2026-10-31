@@ -21,3 +21,6 @@ rmcp = { version = "3.8.0", default-features = false, features = ["client", "tra
 
 [lints]
 workspace = true
+
+[target."cfg(unix)".dependencies]
+close_fds = "0.3.2"

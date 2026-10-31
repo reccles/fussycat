@@ -28,6 +28,18 @@ pub const INHERITED: &[&str] = &[
     "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TMPDIR",
 ];
 
+/// Mark every file descriptor fussycat inherited, past stdin, stdout and
+/// stderr, close-on-exec, so no child gets them. A parent can hand a
+/// process open files without meaning to (bash's `<(cmd)`, which `--stable`
+/// encourages, or a wrapper's own descriptors), and `Command` closes only
+/// what it opened itself. fussycat still reads them (`--stable
+/// /dev/fd/63`); its children don't see them. Call it first, before any
+/// child starts.
+pub fn keep_inherited_fds_from_children() {
+    #[cfg(unix)]
+    close_fds::set_fds_cloexec_threadsafe(3, &[]);
+}
+
 /// A command for `program` with no stdin and a clean environment: only
 /// [`INHERITED`] and the `passed` names, taken from fussycat's own. Every
 /// child the model can set off is built here (architecture eval S10).
