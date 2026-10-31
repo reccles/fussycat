@@ -231,6 +231,26 @@ fn stdout_gets_one_trailing_newline_and_nothing_without_an_answer() {
     assert_eq!(output.stdout, b"", "failed: no answer");
 }
 
+/// A thinking model that reasoned and wrote nothing: the failure says it
+/// reasoned, and how its reasoning ended, not just that the reply was empty.
+#[test]
+fn a_reply_of_only_reasoning_says_so() {
+    let (url, server) = fake_ollama_replying(vec![serde_json::json!({
+        "role": "assistant", "content": "",
+        "thinking": "The user wants the time. I have no clock."})]);
+    let output = run(answering(&url), "What time is it?");
+    server.join().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(output.stdout, b"");
+    assert!(
+        stderr(&output).contains(
+            "it reasoned (41 characters, ending \"The user wants the time. I have no clock.\")"
+        ),
+        "{}",
+        stderr(&output)
+    );
+}
+
 /// A tool and a live command that both hang: each is killed at the
 /// timeout, the model sees why, and the run goes on to its answer.
 #[test]
