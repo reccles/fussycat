@@ -351,6 +351,79 @@ impl Drop for Group {
     }
 }
 
+/// A long-running child spoken to over its stdin and stdout (an MCP
+/// server). It's in a process group of its own, registered like any command
+/// so a stop signal reaches it, and dropping this kills the group. The
+/// first [`SERVER_STDERR`] bytes of its stderr are kept, to say why it
+/// failed; the rest is read and dropped, so the pipe never fills.
+pub struct Server {
+    _child: tokio::process::Child,
+    group: Group,
+    stderr: Arc<Mutex<Stream>>,
+}
+
+/// How much of a server's stderr is kept for its errors.
+const SERVER_STDERR: usize = 4 * 1024;
+
+/// Start `command` as a [`Server`], with its stdout and stdin.
+pub fn serve(
+    mut command: Command,
+) -> io::Result<(
+    Server,
+    tokio::process::ChildStdout,
+    tokio::process::ChildStdin,
+)> {
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    let mut command = tokio::process::Command::from(command);
+    command.kill_on_drop(true);
+    let mut running = running();
+    let mut child = command.spawn()?;
+    let group = Group(child.id().expect("a child just spawned has an id"));
+    running.push(group.0);
+    drop(running);
+    let stderr = Arc::new(Mutex::new(Stream::default()));
+    if let Some(mut pipe) = child.stderr.take() {
+        let kept = Arc::clone(&stderr);
+        tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let mut chunk = [0; 4096];
+            while let Ok(read @ 1..) = pipe.read(&mut chunk).await {
+                lock(&kept).push(&chunk[..read], SERVER_STDERR);
+            }
+        });
+    }
+    let stdout = child.stdout.take().expect("piped");
+    let stdin = child.stdin.take().expect("piped");
+    let server = Server {
+        _child: child,
+        group,
+        stderr,
+    };
+    Ok((server, stdout, stdin))
+}
+
+impl Server {
+    /// What it has written to stderr so far, trimmed and cut to
+    /// [`SERVER_STDERR`] bytes.
+    pub fn stderr(&self) -> String {
+        let stream = lock(&self.stderr);
+        bounded(stream.text(), stream.dropped(), SERVER_STDERR, "stderr")
+            .trim()
+            .to_owned()
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        kill_group(self.group.0);
+    }
+}
+
 /// Every running command's group killed, and no command can start, or
 /// finish, while this is held: for a signal that ends fussycat.
 #[cfg(unix)]

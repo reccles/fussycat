@@ -3,6 +3,7 @@
 
 mod clock;
 mod file;
+mod mcp;
 mod process;
 mod shell;
 #[cfg(unix)]
@@ -11,6 +12,7 @@ mod tool_file;
 
 pub use clock::SystemClock;
 pub use file::FileSource;
+pub use mcp::{McpError, McpServer, McpView};
 pub use process::Limits;
 pub use shell::{CommandSource, ShellTool, ShellToolError, read_key};
 #[cfg(unix)]
@@ -33,7 +35,7 @@ pub(crate) mod now {
 
     pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
         tokio::runtime::Builder::new_current_thread()
-            .enable_time()
+            .enable_all()
             .build()
             .unwrap()
             .block_on(future)

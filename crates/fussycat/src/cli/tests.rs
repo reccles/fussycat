@@ -4,7 +4,7 @@ use fussycat_core::run::{Failure, Limit};
 use std::path::Path;
 
 use super::*;
-use crate::system::now::FetchNow;
+use crate::system::now::{FetchNow, block_on};
 
 fn parse(argv: &[&str]) -> Result<Args, clap::Error> {
     Args::try_parse_from(std::iter::once("fussycat").chain(argv.iter().copied()))
@@ -12,7 +12,7 @@ fn parse(argv: &[&str]) -> Result<Args, clap::Error> {
 
 /// What `prepare` makes of `argv`, with `task` piped in on stdin.
 fn prepared(argv: &[&str], task: &str) -> Result<Prepared, Refused> {
-    prepare(&parse(argv).unwrap(), Some(task.as_bytes()))
+    block_on(prepare(&parse(argv).unwrap(), Some(task.as_bytes())))
 }
 
 fn agent(argv: &[&str]) -> Result<Agent, Refused> {
@@ -70,7 +70,7 @@ fn flags_declare_blocks_and_grants_in_order() {
         .collect();
     assert_eq!(names, ["core.md", "brief.md"]);
     assert!(matches!(&args.tools[0], ToolGrant::Shell(tool) if tool.spec().name == "now"));
-    assert!(prepare(&args, Some(&b"a task"[..])).is_ok());
+    assert!(block_on(prepare(&args, Some(&b"a task"[..]))).is_ok());
 }
 
 #[test]
@@ -386,14 +386,15 @@ fn the_whole_answer_is_written_and_flushed() {
 
 #[test]
 fn max_output_tokens_reaches_the_budget_and_is_never_zero() {
-    let budget_for = |argv: &[&str]| declarations(&parse(argv).unwrap()).map(|(_, budget)| budget);
+    let budget_for =
+        |argv: &[&str]| declarations(&parse(argv).unwrap(), &Vec::new()).map(|(_, budget)| budget);
     let unset = budget_for(&["--model", "ollama:m"]).unwrap();
     assert_eq!(unset.max_output_tokens(), None);
     let set = budget_for(&["--model", "ollama:m", "--max-output-tokens", "512"]).unwrap();
     assert_eq!(set.max_output_tokens(), Some(512));
     assert_eq!(
         budget_for(&["--model", "ollama:m", "--max-output-tokens", "0"]).unwrap_err(),
-        DeclarationError::NoOutputTokens
+        Refused::from(DeclarationError::NoOutputTokens)
     );
 }
 

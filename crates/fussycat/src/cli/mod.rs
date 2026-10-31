@@ -16,6 +16,8 @@ use fussycat_core::quilt::{BlockDecl, BlockName, Kind, Source, Text};
 use fussycat_core::run::{Outcome, execute};
 use fussycat_core::toolbox::{Tool, Toolbox};
 
+mod mcp;
+
 use crate::reporters::{JsonlReporter, Reporters, StderrReporter, Verbosity, warn};
 use crate::system::{
     CommandSource, FileSource, Limits, ShellTool, ShellToolError, SystemClock, ToolFile,
@@ -50,7 +52,8 @@ struct Args {
 
     /// A live block: COMMAND's output, re-run before every turn and shown
     /// to the model after the log with its fetch time (repeatable).
-    #[arg(long = "live", value_name = "COMMAND")]
+    /// mcp:SERVER.VIEW is instead a `[live.VIEW]` of an --mcp server's file.
+    #[arg(long = "live", value_name = "COMMAND|mcp:SERVER.VIEW")]
     live: Vec<String>,
 
     /// Grant a tool the model may call (repeatable; takes several, so
@@ -60,6 +63,23 @@ struct Args {
     #[arg(long = "tool", value_name = "NAME=COMMAND|FILE", num_args = 1..)]
     tools: Vec<ToolGrant>,
 
+    /// Grant an MCP server's tools (repeatable; takes several, so
+    /// --mcp mcp/*.toml works). The FILE says how to run the server, which
+    /// of its tools the model may call (as `SERVER__TOOL`) and its live views.
+    /// See docs/mcp.md.
+    #[arg(long = "mcp", value_name = "FILE", num_args = 1..)]
+    mcp: Vec<PathBuf>,
+
+    /// Start the MCP server FILE declares and list the tools it offers,
+    /// instead of running: one per line, as `tools = [...]` names it, with
+    /// what the server marks it. Calls no model.
+    #[arg(
+        long,
+        value_name = "FILE",
+        conflicts_with_all = ["stable", "live", "tools", "mcp", "metrics", "list_models"]
+    )]
+    list_tools: Option<PathBuf>,
+
     /// The model, named with its provider: ollama:gpt-oss:20b,
     /// venice:claude-haiku-5-5. A paid provider's key comes from a command
     /// named in `FUSSYCAT_<PROVIDER>_KEY_COMMAND` (a password manager's CLI), read
@@ -68,7 +88,7 @@ struct Args {
         long,
         env = "FUSSYCAT_MODEL",
         value_name = "PROVIDER:MODEL",
-        required_unless_present = "list_models"
+        required_unless_present_any = ["list_models", "list_tools"]
     )]
     model: Option<ModelRef>,
 
@@ -167,9 +187,12 @@ pub async fn main() -> ExitCode {
     if let Some(provider) = args.list_models {
         return list_models(provider, &args.ollama_url).await;
     }
+    if let Some(path) = &args.list_tools {
+        return mcp::list_tools(path, limits(&args)).await;
+    }
     let stdin = std::io::stdin();
     let piped = (!stdin.is_terminal()).then_some(stdin);
-    match prepare(&args, piped) {
+    match prepare(&args, piped).await {
         Ok((agent, task, provider, mut reporters)) => {
             report(execute(&agent, &task, &provider, &SystemClock, &mut reporters).await)
         }
@@ -269,10 +292,11 @@ type Prepared = (Agent, Task, Adapter, Reporters);
 
 /// Everything that can be wrong before any model call, cheapest first: the
 /// arguments, then the task on `stdin` (`None` when it's a terminal), and
-/// only then what has side effects: tool files' help commands, the key
-/// command (perhaps a Touch ID prompt) and creating `--metrics`. So a run
-/// refused for a typo or an empty task touches nothing.
-fn prepare(args: &Args, stdin: Option<impl Read>) -> Result<Prepared, Refused> {
+/// only then what has side effects: tool files' help commands, starting MCP
+/// servers, the key command (perhaps a Touch ID prompt) and creating
+/// `--metrics`. So a run refused for a typo or an empty task touches
+/// nothing.
+async fn prepare(args: &Args, stdin: Option<impl Read>) -> Result<Prepared, Refused> {
     let model = args
         .model
         .as_ref()
@@ -282,10 +306,12 @@ fn prepare(args: &Args, stdin: Option<impl Read>) -> Result<Prepared, Refused> {
             "--max-cost needs a provider that reports cost, and `{model}` doesn't"
         )));
     }
-    let (blocks, budget) = declarations(args)?;
+    let servers = mcp::load(&args.mcp, limits(args))?;
+    let (blocks, budget) = declarations(args, &servers)?;
     let task = read_task(stdin)?;
     // Side effects from here on.
-    let tools = tools(&args.tools, limits(args))?;
+    let mut tools = tools(&args.tools, limits(args))?;
+    tools.extend(mcp::start(&servers).await?);
     let agent = Agent::new(blocks, Toolbox::grant(tools)?, budget)?;
     let provider = model
         .connect(
@@ -398,14 +424,15 @@ pub fn core_prompt(has: Mechanisms) -> String {
 }
 
 /// The agent's blocks and budget: what's declared on the command line and
-/// can be checked from it alone, before anything runs. (Duplicate blocks
-/// and tools are caught by [`Agent::new`], once the tool files are loaded.)
-fn declarations(args: &Args) -> Result<(Vec<BlockDecl>, Budget), DeclarationError> {
+/// in the `servers`' files, checked before anything runs. (Duplicate blocks
+/// and tools are caught by [`Agent::new`], once the tools are known.)
+fn declarations(args: &Args, servers: &mcp::Servers) -> Result<(Vec<BlockDecl>, Budget), Refused> {
     let core = declare(
         Kind::Stable,
         CORE_BLOCK.into(),
         Text(core_prompt(Mechanisms {
-            tools: !args.tools.is_empty(), // one tool per grant
+            // One tool per grant; a server may grant views alone.
+            tools: !args.tools.is_empty() || servers.iter().any(|server| server.grants_tools()),
             live: !args.live.is_empty(),
         })),
     );
@@ -417,14 +444,21 @@ fn declarations(args: &Args) -> Result<(Vec<BlockDecl>, Budget), DeclarationErro
             FileSource::new(path),
         )
     });
-    let live = args.live.iter().map(|command| {
-        let source = CommandSource::new(command, limits(args));
-        declare(Kind::Live, command.clone(), source)
+    let live = args.live.iter().map(|spelled| {
+        let name = spelled.clone();
+        if let Some(view) = mcp::view(spelled, servers) {
+            return Ok(declare(Kind::Live, name, view?)?);
+        }
+        Ok(declare(
+            Kind::Live,
+            name,
+            CommandSource::new(spelled, limits(args)),
+        )?)
     });
-    let blocks = std::iter::once(core)
-        .chain(stable)
+    let blocks = std::iter::once(core.map_err(Refused::from))
+        .chain(stable.map(|block| block.map_err(Refused::from)))
         .chain(live)
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<_, Refused>>()?;
     let mut budget = Budget::new(args.max_turns)?.with_max_tool_output(args.max_tool_output)?;
     if let Some(usd) = args.max_cost {
         budget = budget.with_max_cost(usd)?;

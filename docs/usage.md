@@ -96,6 +96,10 @@ it, but can't change it. For a tool that takes input, write a
 [tool file](tools.md). Either way, tools start with a clean environment, so
 your `GITHUB_TOKEN` and cloud keys stay behind unless a tool file names them.
 
+`--mcp FILE.toml` grants tools from an [MCP server](mcp.md) (GitHub, a
+database, an issue tracker): the file names the server, the tools the model
+may call, and live views of its state (`--live mcp:SERVER.VIEW`).
+
 ## Limits
 
 A run always ends, which matters when it's cron watching, not you.
