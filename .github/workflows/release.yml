@@ -1,7 +1,7 @@
-# Builds fussycat's binaries and publishes them as a GitHub release when a
-# version tag (v0.1.0) is pushed. Run it by hand (workflow_dispatch) to build
-# the same archives as a dry run: they're kept as the run's artifacts, and
-# nothing is published.
+# When a version tag (v0.1.0) is pushed, builds fussycat's binaries,
+# publishes them as a GitHub release and updates the Homebrew tap. Run it by
+# hand (workflow_dispatch) to build the same archives as a dry run: they're
+# kept as the run's artifacts, and nothing is published.
 #
 # Each target builds natively on its own runner: aws-lc-sys compiles C, and a
 # native musl-gcc is simpler than a cross toolchain. The Linux builds are
@@ -92,3 +92,37 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
             dist/*.tar.gz dist/SHA256SUMS
+
+  # `brew install reccles/homebrew-vault/fussycat` follows each release: the
+  # formula points at the archives just published, pinned by their sums. A
+  # pre-release tag (v0.2.0-rc.1) isn't offered. HOMEBREW_TAP_DEPLOY_KEY is a
+  # write deploy key on homebrew-vault, so this job can push there and only
+  # there.
+  homebrew:
+    if: github.ref_type == 'tag' && !contains(github.ref_name, '-')
+    needs: release
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: reccles/homebrew-vault
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          path: tap
+      - name: formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS -D "$RUNNER_TEMP"
+          scripts/homebrew-formula.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/SHA256SUMS" > tap/Formula/fussycat.rb
+      - name: push
+        working-directory: tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/fussycat.rb
+          git diff --cached --quiet && { echo "the formula is already $GITHUB_REF_NAME"; exit 0; }
+          git commit -q -m "chore: update fussycat to ${GITHUB_REF_NAME#v}"
+          git push -q origin HEAD
