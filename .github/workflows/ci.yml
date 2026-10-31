@@ -3,7 +3,8 @@
 #
 # Toolchains are pinned: a new Rust (and its lints) arrives by PR, not by
 # surprise. RUST is the toolchain the gates run on; MSRV is Cargo.toml's
-# rust-version.
+# rust-version. So is the Linux image (ubuntu-26.04, not ubuntu-latest), for
+# the same reason.
 # Third-party actions are pinned to commit SHAs (bump the SHA and the comment).
 name: ci
 on:
@@ -26,7 +27,7 @@ env:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-26.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,7 +75,7 @@ jobs:
   # rust-version is a claim that it compiles, so check (with the tests) is
   # enough; behaviour is the test job's.
   msrv:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,7 +94,7 @@ jobs:
   # only lints them. examples/.shellcheckrc applies, and -x follows `. lib.sh`.
   # Pinned and checksum-verified: bump the version AND the sha together.
   shellcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       SHELLCHECK_VERSION: 0.11.0
       SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
@@ -114,7 +115,7 @@ jobs:
   # The binary, not gitleaks-action (which needs a licence for orgs). Pinned
   # and checksum-verified: bump the version AND the sha together.
   gitleaks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       GITLEAKS_VERSION: 8.30.1
       GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
