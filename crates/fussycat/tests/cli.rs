@@ -112,6 +112,11 @@ fn stdout_gets_one_trailing_newline_and_nothing_without_an_answer() {
     server.join().unwrap();
     assert_eq!(output.stdout, b"It's noon.\n", "a newline isn't doubled");
 
+    let (url, server) = fake_ollama("\n\n391");
+    let output = run(answering(&url), "What is 17*23?");
+    server.join().unwrap();
+    assert_eq!(output.stdout, b"391\n", "blank lines before it go");
+
     let (url, server) = fake_ollama_replying(vec![serde_json::json!({
         "role": "assistant", "content": "",
         "tool_calls": [{"function": {"name": "now", "arguments": {}}}]})]);
