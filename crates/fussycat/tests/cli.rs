@@ -205,6 +205,49 @@ fn a_silent_provider_is_given_up_on_at_the_provider_timeout() {
     assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
 }
 
+/// A file descriptor fussycat was handed (a wrapper's, or bash's `<(cmd)`)
+/// never reaches a tool: here a shell opens fd 7, then becomes fussycat,
+/// and the tool lists the descriptors it has.
+#[test]
+fn a_tool_never_inherits_fussycats_file_descriptors() {
+    let (url, server) = fake_ollama_replying(vec![
+        serde_json::json!({"role": "assistant", "content": "",
+            "tool_calls": [{"function": {"name": "fds", "arguments": {}}}]}),
+        serde_json::json!({"role": "assistant", "content": "Listed."}),
+    ]);
+    let mut command = Command::new("sh");
+    command
+        .args(["-c", r#"exec 7</dev/null; exec "$0" "$@""#])
+        .arg(env!("CARGO_BIN_EXE_fussycat"))
+        .args([
+            "--model",
+            "ollama:m",
+            "--ollama-url",
+            &url,
+            "--retries",
+            "0",
+            "-q",
+        ])
+        .args(["--tool", "fds=ls /dev/fd | tr '\\n' ' '"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("NO_PROXY", "127.0.0.1,localhost");
+    let output = run(command, "List your descriptors.");
+    let asked = server.join().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let result = &asked[1];
+    let listed = result
+        .split("\"content\":\"")
+        .find(|part| part.starts_with("0 1 "))
+        .expect("the tool's result")
+        .split('"')
+        .next()
+        .unwrap();
+    let fds: Vec<&str> = listed.split_whitespace().collect();
+    assert!(fds.contains(&"2"), "the listing: {listed}");
+    assert!(!fds.contains(&"7"), "fd 7 reached the tool: {listed}");
+}
+
 #[test]
 fn a_reader_that_closes_the_pipe_early_gets_a_quiet_exit_not_a_panic() {
     let (url, server) = fake_ollama(&"a long answer\n".repeat(10_000));

@@ -349,6 +349,18 @@ sandbox; it's built to be sandboxed.
   command runs in the author's environment, because the author wrote it,
   it runs once before the model is called, and its output is the secret
   anyway. That's where secret stores keep their settings.
+- **Nor fussycat's open files.** At startup fussycat marks every file
+  descriptor it inherited past stdin, stdout and stderr close-on-exec, so
+  a wrapper's descriptors, or bash's `<(cmd)` pipes, never reach a child.
+  fussycat itself still reads them (`--stable <(cmd)` works).
+- **What a clean environment doesn't cover.** A child shares fussycat's
+  working directory (tool files' relative paths depend on it), its umask,
+  and its user, so everything that user can read, `HOME` included:
+  `~/.netrc`, `~/.aws/credentials`, `~/.config/gh`. Dropping `HOME` from
+  the environment wouldn't hide those files, only break the programs that
+  look for their settings there. Keeping a tool away from files is the
+  sandbox's job: run fussycat under `sandbox-exec`, `bwrap` or a container
+  that shows it only what the task needs (`examples/isolation.sh`).
 - **Keys travel only through pipes.** A paid provider's key comes from a
   command named in `FUSSYCAT_<PROVIDER>_KEY_COMMAND`, which fussycat runs and
   reads from its stdout. The key is never in argv, the environment or a

@@ -13,7 +13,7 @@ mod tool_file;
 pub use clock::SystemClock;
 pub use file::FileSource;
 pub use mcp::{McpError, McpServer, McpView};
-pub use process::Limits;
+pub use process::{Limits, keep_inherited_fds_from_children};
 pub use shell::{CommandSource, ShellTool, ShellToolError, read_key};
 #[cfg(unix)]
 pub use signals::{Signal, on_stop_signal};

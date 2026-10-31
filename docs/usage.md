@@ -94,7 +94,11 @@ echo "What time is it in UTC?" | fussycat --tool 'now=date -u'  # now it can
 `NAME=COMMAND` grants a command that takes no arguments: the model can run
 it, but can't change it. For a tool that takes input, write a
 [tool file](tools.md). Either way, tools start with a clean environment, so
-your `GITHUB_TOKEN` and cloud keys stay behind unless a tool file names them.
+your `GITHUB_TOKEN` and cloud keys stay behind unless a tool file names them,
+and with none of fussycat's open files. They do run as you, in your working
+directory: a tool can read whatever you can, `~/.aws` included. To fence
+that off, run fussycat in a sandbox
+([`examples/isolation.sh`](../examples/isolation.sh) shows one).
 
 `--mcp FILE.toml` grants tools from an [MCP server](mcp.md) (GitHub, a
 database, an issue tracker): the file names the server, the tools the model
