@@ -1,5 +1,5 @@
 use super::*;
-use crate::providers::testkit::first_turn;
+use crate::testkit::first_turn;
 
 #[test]
 fn usage_is_passed_through_as_reported() {
@@ -89,7 +89,7 @@ fn a_result_for_an_unknown_call_is_an_error() {
 /// blocks, so a provider with breakpoints never caches what changes.
 #[test]
 fn the_seams_are_cache_points_and_live_is_left_out() {
-    use crate::providers::testkit::{second_turn, with_live};
+    use crate::testkit::{second_turn, with_live};
     use rig_core::completion::CachePoint::{Messages, System, Tools};
     assert_eq!(
         to_rig(&first_turn()).unwrap().cache_points,

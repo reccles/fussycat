@@ -36,6 +36,10 @@ impl Dialect for Venice {
     }
 }
 
+/// The cache key's prefix: the program's name, as every key so far has
+/// been sent. Changing it starts every agent's cache over.
+const CACHE_KEY_PREFIX: &str = "fussycat";
+
 /// - `include_venice_system_prompt: false`: by default Venice prepends its
 ///   own system prompt, which is context the author never declared (R3).
 /// - `prompt_cache_key`: routes every turn, and every run of the same
@@ -44,7 +48,7 @@ impl Dialect for Venice {
 fn options(request: &Request) -> VeniceOptions {
     VeniceOptions::new()
         .include_venice_system_prompt(false)
-        .prompt_cache_key(format!("{}-{}", crate::NAME, prefix_key(request)))
+        .prompt_cache_key(format!("{CACHE_KEY_PREFIX}-{}", prefix_key(request)))
 }
 
 /// What Venice says the call cost, in USD. Unknown if it didn't say.

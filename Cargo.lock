@@ -440,10 +440,8 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "fussycat-core",
+ "fussycat-providers",
  "regex",
- "reqwest",
- "rig-core",
- "rig-reqwest",
  "serde",
  "serde_json",
  "thiserror",
@@ -458,6 +456,20 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "fussycat-providers"
+version = "0.1.0"
+dependencies = [
+ "fussycat-core",
+ "reqwest",
+ "rig-core",
+ "rig-reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]

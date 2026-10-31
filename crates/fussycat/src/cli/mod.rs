@@ -16,7 +16,6 @@ use fussycat_core::quilt::{BlockDecl, BlockName, Kind, Source, Text};
 use fussycat_core::run::{Outcome, execute};
 use fussycat_core::toolbox::{Tool, Toolbox};
 
-use crate::providers::{Adapter, ModelRef, ProviderName, RetryPolicy};
 use crate::reporters::{JsonlReporter, Reporters, StderrReporter, Verbosity, warn};
 use crate::system::{
     CommandSource, FileSource, Limits, ShellTool, ShellToolError, SystemClock, ToolFile,
@@ -24,6 +23,7 @@ use crate::system::{
 };
 #[cfg(unix)]
 use crate::system::{Signal, on_stop_signal};
+use fussycat_providers::{Adapter, ModelRef, ProviderName, RetryPolicy};
 
 const EXIT_FAILED: u8 = 1;
 const EXIT_USAGE: u8 = 2;

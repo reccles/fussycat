@@ -2,14 +2,14 @@ use fussycat_core::report::prefix_key;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::providers::testkit::{
-    NO_RETRIES, assert_golden, assert_wire_contract, capped_at, chat_view, first_turn, paid_key,
+use crate::testkit::{
+    NO_RETRIES, assert_golden, assert_wire_contract, capped_at, chat_view, first_turn,
     reasoning_at, refusal, serve_once, wire_bytes,
 };
 use fussycat_core::log::Part;
 use fussycat_core::provider::{Provider, Reasoning};
 
-/// The paid test's model: cheap, with priced cache reads.
+/// The test model: cheap, with priced cache reads.
 const TEST_MODEL: &str = "claude-haiku-5-5";
 
 fn wire(request: &Request) -> rig_core::http_client::Bytes {
@@ -132,7 +132,7 @@ fn thinking_reply(content: &str) -> Value {
 fn venice_at(url: &str) -> Adapter {
     let client = OpenAIConfig::with_key(&VENICE, "not-a-real-key")
         .with_base_url(url)
-        .connect(crate::providers::http());
+        .connect(crate::http());
     let model: rig_core::Model<Chat> = client.chat(TEST_MODEL);
     Adapter::new(model, NO_RETRIES, Venice)
 }
@@ -198,31 +198,6 @@ fn reasoning_is_replayed_on_the_next_turn() {
         "{assistant}"
     );
 }
-
-/// Costs real money (fractions of a cent). Run on purpose:
-/// `FUSSYCAT_VENICE_KEY_COMMAND='<a command that prints the key>' cargo test -p fussycat venice -- --ignored`
-#[test]
-#[ignore = "paid: calls the Venice API"]
-fn paid_a_real_call_reports_usage_and_cost() {
-    let key = paid_key(crate::providers::ProviderName::Venice);
-    let venice = connect(key, TEST_MODEL, Policy::default());
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let mut request = first_turn();
-    request.log = vec![fussycat_core::log::Entry::Task(
-        "Reply with the word ok.".into(),
-    )];
-    let response = runtime.block_on(venice.complete(&request)).unwrap();
-    assert!(response.usage.input.is_some_and(|tokens| tokens > 0));
-    assert!(
-        response.usage.cost_usd.is_some_and(|usd| usd > 0.0),
-        "{:?}",
-        response.usage
-    );
-}
-
 #[test]
 fn the_listing_keeps_tool_support_and_prices() {
     let models: Models = serde_json::from_value(json!({"data": [
@@ -246,41 +221,4 @@ fn the_listing_keeps_tool_support_and_prices() {
             "venice:plain-model context=32768 tools=no in=$0.2/M out=$0.9/M",
         ]
     );
-}
-
-/// The stable blocks travel as one joined system
-/// message, because some backends reject or drop all but the first. Both
-/// blocks must reach the model: lowercase from the first, the word from the
-/// second.
-#[test]
-#[ignore = "paid: calls the Venice API"]
-fn paid_every_stable_block_reaches_the_model() {
-    let key = paid_key(crate::providers::ProviderName::Venice);
-    let venice = connect(key, TEST_MODEL, Policy::default());
-    let block = |name: &str, content: &str| fussycat_core::quilt::Block {
-        name: fussycat_core::quilt::BlockName::new(name).unwrap(),
-        content: content.into(),
-    };
-    let request = Request {
-        tools: vec![],
-        stable: vec![
-            block("a.md", "Always answer in lowercase letters only."),
-            block(
-                "b.md",
-                "The secret word is PLUM. When asked for the secret word, reply with it and nothing else.",
-            ),
-        ],
-        log: vec![fussycat_core::log::Entry::Task(
-            "What is the secret word?".into(),
-        )],
-        live: vec![],
-        max_output_tokens: None,
-        reasoning: None,
-    };
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let response = runtime.block_on(venice.complete(&request)).unwrap();
-    assert_eq!(response.turn.text().trim(), "plum");
 }

@@ -1,4 +1,7 @@
-//! Provider adapters: the only place the LLM library is used (eval S8).
+//! fussycat's provider adapters: the core's `Provider` port over
+//! rig-core, the only place the LLM library is used (eval S8). A host
+//! fetches keys and passes them in: this crate starts no processes and
+//! prints nothing.
 
 mod adapter;
 mod anthropic;

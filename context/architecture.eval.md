@@ -17,24 +17,32 @@ update this section first.
 flowchart LR
     subgraph bin["crate: fussycat (binary)"]
         cli["cli/"]
-        prov["providers/"]
         sys["system/: processes, shell, tool files, clock"]
         rep["reporters/"]
+    end
+    subgraph prov["crate: fussycat-providers (library)"]
+        adapters["adapter, anthropic, venice, ollama"]
     end
     subgraph core["crate: fussycat-core (library)"]
         run["run"] --> quilt["quilt"] & tools["toolbox"] & obs["observation"]
         ports["ports (traits)"]
     end
-    cli & prov & sys & rep --> core
+    cli --> prov
+    cli & sys & rep & prov --> core
 ```
 
 - **`fussycat-core`**: the domain and its ports. It does no I/O, has no async
   runtime and knows no provider. It's a separate crate so the compiler, not
   discipline, keeps dependencies pointing inward (P5).
-- **`fussycat`**: the CLI and every adapter. Split adapters out into their own
-  crate only when a second consumer needs them (YAGNI).
+- **`fussycat-providers`**: the provider adapters, the reusable half of
+  fussycat besides the core, so another host (a server, a game loop) can
+  use them without copying. A library for any host: no CLI, no printing, no
+  processes. It takes an API key as a value; how the key is fetched is the
+  host's business.
+- **`fussycat`**: the CLI and the other adapters: processes, the shell,
+  tool files, reporters. It runs the key command and passes the key on.
 - **Provider layer: [`rig-core`][rig]**, pinned to an exact version, used
-  only inside `providers/`. We use its *model layer* (requests, cache
+  only inside `fussycat-providers`. We use its *model layer* (requests, cache
   points, usage, thinking round-trips) so we don't have to keep pace with
   every LLM ourselves. We never use `rig-agent`: the loop and the quilt are
   fussycat's job. Rig ships breaking minors often, so it stays behind the
@@ -70,14 +78,14 @@ Then the review questions (R1–R7).
 |---|---|---|
 | S1 | Core's dependencies come from an allowlist (in the command). Adding one means editing it here, on purpose. | P5 |
 | S2 | Core never touches the world: no env, fs, net, process, stdio, printing or wall clock (use the `Clock` port). | P5, testability |
-| S3 | Provider specifics stay in adapters. | A2, P6 |
-| S4 | HTTP clients appear only in providers: no update checks, no telemetry. | P2 |
-| S5 | Printing happens only in the CLI and reporters. Stdout is the answer and nothing else. | P1, P4 |
+| S3 | Provider specifics stay in the adapters (`fussycat-providers`): the core names no provider. | A2, P6 |
+| S4 | HTTP clients appear only in `fussycat-providers`: no update checks, no telemetry. | P2 |
+| S5 | Printing happens only in the CLI and reporters, never in `fussycat-providers`. Stdout is the answer and nothing else. | P1, P4 |
 | S6 | No crate, package or binary named *quilt* (that name is the Debian tool's). | AGENTS.md |
 | S7 | No source file over 600 lines. | AGENTS.md |
-| S8 | The LLM library (`rig_core`) is used only in `providers/`, and `rig-agent` not at all. | A2, P6, churn containment |
+| S8 | The LLM library (`rig_core`) is used only in `fussycat-providers`, and `rig-agent` not at all. That crate is a library for any host: no `clap`. | A2, P6, churn containment |
 | S9 | Only `system/shell.rs` starts a shell, and only with the author's command text. Tool files run an argv list directly. | P2 |
-| S10 | Every child process is built in `system/process.rs`. Every child the model can set off (tools, live commands) is built by `isolated`, so none escapes the clean environment; only the key command, the author's and run before the model is called, gets fussycat's own (`inheriting`). | P2, Security model |
+| S10 | Every child process is built in `system/process.rs`; `fussycat-providers` starts none, not even in its tests. Every child the model can set off (tools, live commands) is built by `isolated`, so none escapes the clean environment; only the key command, the author's and run before the model is called, gets fussycat's own (`inheriting`). | P2, Security model |
 | S11 | Nothing tracked names a private network: its hosts, its people's home paths. The names are private too, so they live outside the repo, one regex per line, in the file `FUSSYCAT_PRIVATE_NAMES` names; without it, S11 is skipped. | Open source |
 
 [`scripts/arch-eval.sh`](../scripts/arch-eval.sh) holds the commands, one
@@ -99,7 +107,7 @@ as passing.
 | # | Test | Asserts | Protects |
 |---|---|---|---|
 | B1 | `arch_layout_groups_by_kind` *(pinned joins it when pinned blocks exist)* | Declarations given in mixed kind order lay out as stable, pinned, log, live, keeping declaration order within each kind. The same Agent always gives the same layout. | L1, D2, P3 |
-| B2 | `arch_render_is_deterministic` | Rendering the same blocks twice gives byte-identical requests. Tools are sorted by name whatever order the grants came in. Each provider adapter also pins its wire bytes to a golden file (`crates/fussycat/tests/golden/`), so a library upgrade can't change them silently. | L3 |
+| B2 | `arch_render_is_deterministic` | Rendering the same blocks twice gives byte-identical requests. Tools are sorted by name whatever order the grants came in. Each provider adapter also pins its wire bytes to a golden file (`crates/fussycat-providers/tests/golden/`), so a library upgrade can't change them silently. | L3 |
 | B3 | `arch_nothing_volatile_above_log` (also `..._on_the_wire` per adapter) | Two renders with different clocks and different live content are byte-identical up to the end of the log. | P3 |
 | B4 | `arch_log_prefix_survives_turns` | Turn *n*'s render up to the end of its log is a prefix of turn *n+1*'s. | `append`, P3 |
 | B5 | `arch_deny_by_default` | An Agent with no grants sends no tools. Calling an ungranted tool name gives an `Err` result, and no tool is invoked. | P2, D5 |

@@ -1,8 +1,8 @@
 use serde_json::{Value, json};
 
 use super::*;
-use crate::providers::testkit::NO_RETRIES;
-use crate::providers::testkit::{
+use crate::testkit::NO_RETRIES;
+use crate::testkit::{
     assert_golden, assert_wire_contract, capped_at, chat_view, first_turn, reasoning_at, refusal,
     second_turn, wire_bytes,
 };
@@ -123,7 +123,7 @@ fn the_listing_keeps_context_and_tool_support() {
 async fn a_stalled_ollama_times_out_and_is_worth_a_retry() {
     use std::time::{Duration, Instant};
 
-    use crate::providers::retry::{Verdict, verdict};
+    use crate::retry::{Verdict, verdict};
 
     // The OS accepts connections into the backlog; nothing ever answers.
     let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -133,7 +133,7 @@ async fn a_stalled_ollama_times_out_and_is_worth_a_retry() {
     let ollama = with_http(&url, "m", NO_RETRIES, http);
     let started = Instant::now();
 
-    let rig_request = crate::providers::messages::to_rig(&first_turn()).unwrap();
+    let rig_request = crate::messages::to_rig(&first_turn()).unwrap();
     let error = ollama.model.call(rig_request).await.unwrap_err();
     assert!(
         matches!(verdict(&error), Verdict::Retry { .. }),
