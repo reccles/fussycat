@@ -115,7 +115,7 @@ pub struct Response {
 
 /// The provider failed after the adapter gave up (including its retries).
 /// The message names the cause, in the provider's own words if it gave any.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize)]
 #[error("{message}")]
 pub struct ProviderError {
     pub message: String,

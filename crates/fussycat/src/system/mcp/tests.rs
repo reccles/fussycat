@@ -56,6 +56,16 @@ fn the_allowlist_is_required_and_star_stands_alone() {
     assert!(problem(&board("tools = []\ntypo = 1")).contains("unknown field `typo`"));
 }
 
+/// `version = 1` or none; a newer format is refused, not half-read.
+#[test]
+fn the_file_format_is_versioned() {
+    assert!(McpServer::parse(&board("version = 1\ntools = []"), Limits::DEFAULT).is_ok());
+    assert!(
+        problem(&board("version = 2\ntools = []")).contains("newer than this fussycat reads (1)")
+    );
+    assert!(problem(&board("version = 0\ntools = []")).contains("isn't a version"));
+}
+
 #[test]
 fn a_server_name_must_make_tool_names() {
     let file = "name = \"my__board\"\nrun = [\"x\"]\ntools = []";

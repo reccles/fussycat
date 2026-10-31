@@ -19,6 +19,24 @@ pub use shell::{CommandSource, ShellTool, ShellToolError, read_key};
 pub use signals::{Signal, on_stop_signal};
 pub use tool_file::{ToolFile, ToolFileError};
 
+/// The tool-file and MCP-file format this fussycat reads. A file may say
+/// `version = 1`; without it, it's read as this one. A file for a newer
+/// format is refused rather than half-understood.
+pub const FILE_VERSION: u32 = 1;
+
+/// `version`, from a tool or MCP file, if this fussycat reads it.
+fn check_version(version: Option<u32>) -> Result<(), String> {
+    match version {
+        None | Some(FILE_VERSION) => Ok(()),
+        Some(newer) if newer > FILE_VERSION => Err(format!(
+            "`version = {newer}` is newer than this fussycat reads ({FILE_VERSION}): upgrade fussycat"
+        )),
+        Some(other) => Err(format!(
+            "`version = {other}` isn't a version (this fussycat reads {FILE_VERSION})"
+        )),
+    }
+}
+
 /// What providers accept as a tool name: 1-64 of `a-z A-Z 0-9 _ -`.
 fn is_tool_name(name: &str) -> bool {
     (1..=64).contains(&name.len())

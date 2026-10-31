@@ -7,6 +7,9 @@
 //!     a whole answer (empty, or cut off)
 //! ```
 
+use serde::Serialize;
+use serde::ser::SerializeStruct;
+
 use crate::agent::{Agent, Task};
 use crate::clock::Clock;
 use crate::live::{self, LiveBlock, LiveReport};
@@ -27,6 +30,28 @@ pub enum Limit {
     },
 }
 
+/// `{"kind": "max_turns", "turns": 3}` or `{"kind": "max_cost", "cap_usd":
+/// 1.0, "spent_usd": 1.02}`: a report's structured reason.
+impl Serialize for Limit {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match *self {
+            Self::MaxTurns(turns) => {
+                let mut limit = serializer.serialize_struct("Limit", 2)?;
+                limit.serialize_field("kind", "max_turns")?;
+                limit.serialize_field("turns", &turns)?;
+                limit.end()
+            }
+            Self::MaxCost { cap_usd, spent_usd } => {
+                let mut limit = serializer.serialize_struct("Limit", 3)?;
+                limit.serialize_field("kind", "max_cost")?;
+                limit.serialize_field("cap_usd", &cap_usd)?;
+                limit.serialize_field("spent_usd", &spent_usd)?;
+                limit.end()
+            }
+        }
+    }
+}
+
 impl std::fmt::Display for Limit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -38,7 +63,10 @@ impl std::fmt::Display for Limit {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+/// Serialized as `{"kind": "no_answer", "turn": 2}` and the like: a
+/// report's structured reason, beside the sentence `Display` gives.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Failure {
     #[error("stable block `{block}`: {error}")]
     Source {
@@ -88,6 +116,37 @@ pub enum Outcome {
     Answered(String),
     Exhausted(Limit),
     Failed(Failure),
+}
+
+impl Outcome {
+    /// `answered`, `exhausted` or `failed`: how every report names it.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Answered(_) => "answered",
+            Self::Exhausted(_) => "exhausted",
+            Self::Failed(_) => "failed",
+        }
+    }
+
+    /// Why it didn't answer, structured for reports; `None` when it did.
+    /// Never the answer itself, which belongs on stdout alone.
+    #[must_use]
+    pub fn reason(&self) -> Option<Reason<'_>> {
+        match self {
+            Self::Answered(_) => None,
+            Self::Exhausted(limit) => Some(Reason::Limit(limit)),
+            Self::Failed(failure) => Some(Reason::Failure(failure)),
+        }
+    }
+}
+
+/// [`Outcome::reason`]: a limit or a failure, each `{"kind": ..., ...}`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum Reason<'a> {
+    Limit(&'a Limit),
+    Failure(&'a Failure),
 }
 
 /// Run `agent` on `task` until the model answers, a budget limit is

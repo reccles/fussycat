@@ -13,8 +13,8 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::{Map, Number, Value, json};
 
-use super::is_tool_name;
 use super::process::{Ended, Limits, bounded, capture, isolated, output, seconds};
+use super::{check_version, is_tool_name};
 
 /// Help text past this many bytes is cut, visibly: it rides in every request.
 const HELP_LIMIT: usize = 8 * 1024;
@@ -70,6 +70,8 @@ fn invalid<T>(message: impl Into<String>) -> Result<T, Problem> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Declaration {
+    /// The format's version ([`FILE_VERSION`](super::FILE_VERSION)).
+    version: Option<u32>,
     name: String,
     description: Option<String>,
     help: Option<Vec<String>>,
@@ -266,6 +268,7 @@ impl ToolFile {
     fn parse(text: &str, limits: Limits) -> Result<Self, Problem> {
         let decl: Declaration =
             toml::from_str(text).map_err(|error| Problem::Invalid(error.to_string()))?;
+        check_version(decl.version).map_err(Problem::Invalid)?;
         if !is_tool_name(&decl.name) {
             return invalid(format!(
                 "name `{}` must be 1-64 characters of a-z, A-Z, 0-9, `_` or `-`",

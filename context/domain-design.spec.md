@@ -293,7 +293,11 @@ makes a run's cost not depend on a default they can't see.
   change within a run.
 - **TurnReport** and **RunSummary:** a JSON line per turn and per run with
   `--metrics`; a summary line on stderr, `-v` for a line per turn, `-q` for
-  none.
+  none. The JSONL is a public contract: every line has `version` and a
+  random `run` id, and the summary a structured `reason` (the `Limit` or
+  `Failure`, by `kind`). The vocabulary (outcomes, live statuses, reason
+  kinds) is spelled once, in the core's types. Tool files and MCP files
+  carry an optional `version` too; a newer one is refused.
 
 ### Ports
 

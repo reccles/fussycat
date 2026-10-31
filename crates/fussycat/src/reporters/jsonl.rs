@@ -5,35 +5,58 @@ use fussycat_core::report::{Reporter, RunSummary, TurnReport};
 use fussycat_core::run::Outcome;
 use serde_json::{Value, json};
 
-use super::outcome_name;
+/// The `--metrics` format's version, on every line. It goes up when a
+/// field changes meaning or goes away; a new field doesn't change it, so a
+/// script should ignore fields it doesn't know.
+pub const METRICS_VERSION: u32 = 1;
 
 /// `--metrics FILE`: one JSON object per line, appended, for `jq`. Every
-/// line carries the run's start time and model, so lines from many runs
-/// (a daily cron) group cleanly.
+/// line carries the format's version, the run's id, its start time and its
+/// model, so lines from many runs (a daily cron, or several at once)
+/// group cleanly.
 pub struct JsonlReporter<W> {
     out: W,
     run: String,
+    started: String,
     model: String,
 }
 
 impl<W: Write> JsonlReporter<W> {
-    pub fn new(out: W, run_started: Timestamp, model: &str) -> Self {
+    /// `run` names this run alone ([`run_id`]); `started` is when it began.
+    pub fn new(out: W, run: String, started: Timestamp, model: &str) -> Self {
         Self {
             out,
-            run: run_started.to_string(),
+            run,
+            started: started.to_string(),
             model: model.to_owned(),
         }
     }
 
+    /// One line, in one write: runs appending to one file at once never
+    /// interleave inside a line (the file is opened to append).
     fn write(&mut self, kind: &str, body: Value) {
-        let mut line = json!({"type": kind, "run": self.run, "model": self.model});
+        let mut line = json!({
+            "version": METRICS_VERSION, "type": kind, "run": self.run,
+            "started": self.started, "model": self.model,
+        });
         if let (Some(line), Value::Object(body)) = (line.as_object_mut(), body) {
             line.extend(body);
         }
-        if let Err(error) = writeln!(self.out, "{line}").and_then(|()| self.out.flush()) {
+        let line = format!("{line}\n");
+        if let Err(error) = self.out.write_all(line.as_bytes()) {
             super::warn(format_args!("--metrics: {error}"));
         }
     }
+}
+
+/// A run's id: 16 hex digits from the process's random hash keys, so runs
+/// started in the same second, or on two machines, get different ones.
+#[must_use]
+pub fn run_id() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = std::hash::RandomState::new().build_hasher();
+    hasher.write_u32(std::process::id());
+    format!("{:016x}", hasher.finish())
 }
 
 impl<W: Write> Reporter for JsonlReporter<W> {
@@ -44,7 +67,10 @@ impl<W: Write> Reporter for JsonlReporter<W> {
     fn finish(&mut self, summary: &RunSummary, outcome: &Outcome) {
         let mut body = serde_json::to_value(summary).unwrap_or_default();
         if let Some(body) = body.as_object_mut() {
-            body.insert("outcome".into(), outcome_name(outcome).into());
+            body.insert("outcome".into(), outcome.name().into());
+            if let Some(reason) = outcome.reason() {
+                body.insert("reason".into(), json!(reason));
+            }
             if let Some(detail) = detail(outcome) {
                 body.insert("detail".into(), detail.into());
             }
@@ -73,6 +99,7 @@ mod tests {
         let mut out = Vec::new();
         act(&mut JsonlReporter::new(
             &mut out,
+            "0123456789abcdef".into(),
             Timestamp::from_unix_millis(0),
             "gpt-oss:20b",
         ));
@@ -109,7 +136,8 @@ mod tests {
         assert_eq!(
             lines,
             [json!({
-                "type": "turn", "run": "1970-01-01T00:00:00Z", "model": "gpt-oss:20b",
+                "version": 1, "type": "turn", "run": "0123456789abcdef",
+                "started": "1970-01-01T00:00:00Z", "model": "gpt-oss:20b",
                 "turn": 1, "elapsed_ms": 1200, "tool_calls": 1, "skipped_tool_calls": 0, "retries": 1,
                 "stop": "output_limit",
                 "usage": {"input": 167, "output": 69, "cache_read": 0, "cache_write": null, "cost_usd": null},
@@ -130,7 +158,46 @@ mod tests {
         let answered = lines(|r| r.finish(&summary, &Outcome::Answered("secret".into())));
         assert_eq!(answered[0]["outcome"], "answered");
         assert!(!answered[0].to_string().contains("secret"));
+        assert_eq!(answered[0].get("reason"), None);
         let exhausted = lines(|r| r.finish(&summary, &Outcome::Exhausted(Limit::MaxTurns(2))));
+        assert_eq!(exhausted[0]["outcome"], "exhausted");
+        assert_eq!(
+            exhausted[0]["reason"],
+            json!({"kind": "max_turns", "turns": 2})
+        );
         assert_eq!(exhausted[0]["detail"], "max turns (2) reached");
+    }
+
+    /// Each line reaches the file in one write, so concurrent runs
+    /// appending to one file can't interleave within a line.
+    #[test]
+    fn each_line_is_one_write() {
+        struct Writes(Vec<usize>);
+        impl Write for Writes {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.push(bytes.len());
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut writes = Writes(Vec::new());
+        let summary = RunSummary {
+            turns: 1,
+            elapsed_ms: 1,
+            usage: Usage::default(),
+            retries: 0,
+        };
+        JsonlReporter::new(&mut writes, run_id(), Timestamp::from_unix_millis(0), "m")
+            .finish(&summary, &Outcome::Answered("hi".into()));
+        assert_eq!(writes.0.len(), 1, "{:?}", writes.0);
+    }
+
+    #[test]
+    fn run_ids_differ_between_runs() {
+        let (a, b) = (run_id(), run_id());
+        assert_ne!(a, b);
+        assert_eq!(a.len(), 16);
     }
 }

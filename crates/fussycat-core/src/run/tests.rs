@@ -5,6 +5,7 @@ use super::*;
 use crate::agent::Budget;
 use crate::block_on;
 use crate::clock::fakes::TickingClock;
+use crate::live::Status;
 use crate::log::{AssistantTurn, Part};
 use crate::provider::{Request, Response, Stop};
 use crate::quilt::{BlockDecl, Fetch, Source};
@@ -339,7 +340,7 @@ fn live_blocks_are_refreshed_every_turn_and_rendered_after_the_log() {
         1,
         "live blocks never land above the log"
     );
-    assert_eq!(reports.turns[1].live[0].status, "fresh");
+    assert_eq!(reports.turns[1].live[0].status, Status::Fresh);
 }
 
 #[test]
@@ -378,7 +379,7 @@ fn arch_live_failure_never_aborts() {
 
     assert_eq!(outcome, Outcome::Answered("noon".into()));
     let statuses: Vec<_> = reports.turns.iter().map(|t| t.live[0].status).collect();
-    assert_eq!(statuses, ["failed", "fresh", "stale"]);
+    assert_eq!(statuses, [Status::Failed, Status::Fresh, Status::Stale]);
     let third = &provider.requests()[2].live[0].content;
     assert!(
         third.contains("status=\"stale\"") && third.contains("\ntick-2\n"),
@@ -505,5 +506,44 @@ fn arch_tool_output_is_capped_before_it_reaches_the_log() {
     assert_eq!(
         results[0].output,
         Ok("twelve\n[output cut: showing the first 6 of 14 bytes]".into())
+    );
+}
+
+/// A report's structured reason: a limit or a failure, each with its
+/// `kind`, so scripts read `.reason.kind` rather than parse a sentence.
+#[test]
+fn an_outcome_reason_is_structured_by_kind() {
+    let reason = |outcome: &Outcome| serde_json::to_value(outcome.reason()).unwrap();
+    assert_eq!(
+        reason(&Outcome::Answered("noon".into())),
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        reason(&Outcome::Exhausted(Limit::MaxTurns(3))),
+        serde_json::json!({"kind": "max_turns", "turns": 3})
+    );
+    assert_eq!(
+        reason(&Outcome::Exhausted(Limit::MaxCost {
+            cap_usd: 1.0,
+            spent_usd: 1.5
+        })),
+        serde_json::json!({"kind": "max_cost", "cap_usd": 1.0, "spent_usd": 1.5})
+    );
+    assert_eq!(
+        reason(&Outcome::Failed(Failure::NoAnswer { turn: 2 })),
+        serde_json::json!({"kind": "no_answer", "turn": 2})
+    );
+    assert_eq!(
+        reason(&Outcome::Failed(Failure::Provider(
+            ProviderError::new("429").after_retries(3)
+        ))),
+        serde_json::json!({"kind": "provider", "message": "429", "retries": 3})
+    );
+    assert_eq!(
+        reason(&Outcome::Failed(Failure::Source {
+            block: crate::quilt::BlockName::new("a.md").unwrap(),
+            error: SourceError("gone".into()),
+        })),
+        serde_json::json!({"kind": "source", "block": "a.md", "error": "gone"})
     );
 }

@@ -8,6 +8,10 @@ A tool file runs a program from a list of arguments, never through a shell,
 and checks every argument before anything runs. So whatever text the model
 sends can't turn into a command, or even sneak in an option.
 
+A file may start with `version = 1`, the format it's written for. Without
+it, it's read as version 1; a file for a newer format is refused (exit 2)
+rather than half-understood.
+
 ## The narrow shape: typed inputs
 
 Most tools should look like this: one specific job, with typed inputs. Here's

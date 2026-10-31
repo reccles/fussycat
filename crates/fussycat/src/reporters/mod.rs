@@ -3,7 +3,7 @@
 mod jsonl;
 mod stderr;
 
-pub use jsonl::JsonlReporter;
+pub use jsonl::{JsonlReporter, run_id};
 pub use stderr::{StderrReporter, Verbosity};
 
 use std::fmt::Display;
@@ -39,14 +39,5 @@ impl Reporter for Reporters {
         for reporter in &mut self.0 {
             reporter.finish(summary, outcome);
         }
-    }
-}
-
-/// `answered`, `exhausted` or `failed`: how reports name an outcome.
-fn outcome_name(outcome: &Outcome) -> &'static str {
-    match outcome {
-        Outcome::Answered(_) => "answered",
-        Outcome::Exhausted(_) => "exhausted",
-        Outcome::Failed(_) => "failed",
     }
 }

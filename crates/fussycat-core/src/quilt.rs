@@ -46,7 +46,7 @@ pub struct Block {
     pub content: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize)]
 #[error("{0}")]
 pub struct SourceError(pub String);
 
