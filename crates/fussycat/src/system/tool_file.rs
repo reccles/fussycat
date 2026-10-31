@@ -427,7 +427,7 @@ fn placeholder(item: &str) -> Option<&str> {
 
 /// Letters, digits and `_`, not starting with a digit: an input name, and
 /// a portable environment variable name (POSIX).
-fn is_identifier(name: &str) -> bool {
+pub(super) fn is_identifier(name: &str) -> bool {
     let mut chars = name.chars();
     chars
         .next()

@@ -176,8 +176,10 @@ one turn in flight at a time (`turn` takes the run by `&mut`).
 
 ### Sources and freshness
 
-A source produces a block's content: a file or a command. Stable sources are
-read once; live sources are re-run before every turn. A live block never
+A source produces a block's content: a file, a command, or an MCP server's
+live view (a tool call with the author's fixed arguments, or a resource,
+enabled with `--live mcp:SERVER.VIEW`). Stable sources are read once; live
+sources are re-run before every turn. A live block never
 disappears and never aborts a turn:
 
 | Freshness | Renders as |
@@ -213,6 +215,7 @@ flowchart LR
     C -. "never" .-x Tb
     Tb --> ST["shell tool: --tool 'name=cmd'"]
     Tb --> TF["tool file: --tool x.toml"]
+    Tb --> MT["MCP tool: --mcp x.toml"]
 ```
 
 - **Grant:** explicit permission for one tool. No grants means an empty
@@ -228,6 +231,13 @@ flowchart LR
   with `-` unless its input allows it, and a `pattern` must match the whole
   value. `env = [...]` passes named variables through (see the security
   model).
+- **MCP tool** (`--mcp x.toml`): one tool of an MCP server, named
+  `SERVER__TOOL`, with the server's own description and schema; the server
+  checks the arguments. The file's `tools` allowlist is required (`["*"]`
+  grants all, explicitly), and a listed tool the server lacks fails the run
+  before any model call. The server runs for the whole run, in its own
+  process group with the clean environment plus its file's `env`; its tool
+  list is read once, so the prefix can't change mid-run.
 - **Calls and results:** a result is `Ok` or `Err`, and both go back to the
   model. Calling an ungranted name is an `Err` result, never an execution.
 
@@ -290,8 +300,8 @@ makes a run's cost not depend on a default they can't see.
 | Port | Implemented by | For |
 |---|---|---|
 | `Provider` | Anthropic, Venice, Ollama | a request in; a reply, usage and retries out |
-| `Source` | file (`--stable`), command (`--live`) | block content |
-| `Tool` | shell tool, tool file | one granted tool: its spec and its invocation |
+| `Source` | file (`--stable`), command (`--live`), MCP view (`--live mcp:SERVER.VIEW`) | block content |
+| `Tool` | shell tool, tool file, MCP tool | one granted tool: its spec and its invocation |
 | `Clock` | the system clock; a fake in tests | fetch times, durations |
 | `Reporter` | stderr, JSONL; a recorder in tests | turn reports, the run summary |
 
@@ -345,6 +355,11 @@ sandbox; it's built to be sandboxed.
   file, and no error shows it. Any command that prints a key will do
   (examples in [`docs/usage.md`](../docs/usage.md#providers-and-keys)).
 
+- **An MCP server is a granted program.** It gets the clean environment
+  plus the variables its file names, like a tool file, but for the whole
+  run, and its tool descriptions are its own words in the prefix. The
+  allowlist is required, and a live view may not bind a tool the server
+  marks destructive (it runs every turn).
 - **Handguns are allowed, and labelled.** A broad tool file is the author's
   choice; fussycat makes the breadth visible rather than policing it. Narrow
   typed inputs are the safe shape for anything with side effects.

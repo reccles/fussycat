@@ -14,9 +14,10 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 clap = { version = "4.6.7", features = ["derive", "env"] }
-tokio = { version = "1.54.1", features = ["macros", "rt", "signal", "time"] }
+tokio = { version = "1.54.1", features = ["macros", "process", "rt", "signal", "time"] }
 toml = "1.1.8"
 regex = "1.13.1"
+rmcp = { version = "3.8.0", default-features = false, features = ["client", "transport-async-rw"] }
 
 [lints]
 workspace = true

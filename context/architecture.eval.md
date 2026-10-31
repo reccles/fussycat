@@ -85,7 +85,7 @@ Then the review questions (R1–R7).
 | S7 | No source file over 600 lines. | AGENTS.md |
 | S8 | The LLM library (`rig_core`) is used only in `fussycat-providers`, and `rig-agent` not at all. That crate is a library for any host: no `clap`. | A2, P6, churn containment |
 | S9 | Only `system/shell.rs` starts a shell, and only with the author's command text. Tool files run an argv list directly. | P2 |
-| S10 | Every child process is built in `system/process.rs`; `fussycat-providers` starts none, not even in its tests. Every child the model can set off (tools, live commands) is built by `isolated`, so none escapes the clean environment; only the key command, the author's and run before the model is called, gets fussycat's own (`inheriting`). | P2, Security model |
+| S10 | Every child process is built in `system/process.rs`, MCP servers included (rmcp gets only their stdin and stdout, never a command to spawn); `fussycat-providers` starts none, not even in its tests. Every child the model can set off (tools, live commands) is built by `isolated`, so none escapes the clean environment; only the key command, the author's and run before the model is called, gets fussycat's own (`inheriting`). | P2, Security model |
 | S11 | Nothing tracked names a private network: its hosts, its people's home paths. The names are private too, so they live outside the repo, one regex per line, in the file `FUSSYCAT_PRIVATE_NAMES` names; without it, S11 is skipped. | Open source |
 
 [`scripts/arch-eval.sh`](../scripts/arch-eval.sh) holds the commands, one
