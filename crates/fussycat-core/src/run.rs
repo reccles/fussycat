@@ -10,7 +10,7 @@
 use crate::agent::{Agent, Task};
 use crate::clock::Clock;
 use crate::live::{self, LiveBlock, LiveReport};
-use crate::log::{Entry, Log};
+use crate::log::{AssistantTurn, Entry, Log, Part};
 use crate::provider::{Provider, ProviderError, Request, Response, Stop};
 use crate::quilt::{Block, BlockName, Kind, Quilt, SourceError};
 use crate::report::{Reporter, RunSummary, TurnReport, Usage, prefix_fingerprints};
@@ -54,6 +54,18 @@ pub enum Failure {
     /// A reply with no tool calls and no text (or only whitespace).
     #[error("the model gave no answer: its reply on turn {turn} was empty")]
     NoAnswer { turn: u32 },
+    /// [`Failure::NoAnswer`] from a model that reasoned first: it stopped
+    /// mid-thought, rather than the provider sending nothing. `ending` is
+    /// the reasoning's last line, cut to its last [`ENDING_CHARS`].
+    #[error(
+        "the model gave no answer: on turn {turn} it reasoned ({chars} characters, \
+         ending {ending:?}) but wrote no reply; another reasoning effort may get one"
+    )]
+    OnlyReasoned {
+        turn: u32,
+        chars: usize,
+        ending: String,
+    },
     /// Part of an answer isn't the answer, and stdout holds only the answer.
     #[error(
         "the answer was cut off at the output limit (max output tokens) on turn {turn}, \
@@ -311,14 +323,49 @@ impl Step {
             (Stop::End, true) => Self::CallTools,
             (Stop::End, false) => {
                 let answer = response.turn.text();
-                if answer.trim().is_empty() {
-                    Self::Fail(Failure::NoAnswer { turn })
-                } else {
+                if !answer.trim().is_empty() {
                     Self::Answer(answer)
+                } else if let Some((chars, ending)) = reasoned(&response.turn) {
+                    Self::Fail(Failure::OnlyReasoned {
+                        turn,
+                        chars,
+                        ending,
+                    })
+                } else {
+                    Self::Fail(Failure::NoAnswer { turn })
                 }
             }
         }
     }
+}
+
+/// How much of a reasoning's end an error quotes: enough to tell a
+/// thought cut short from one that concluded, short enough for one line.
+pub const ENDING_CHARS: usize = 80;
+
+/// The reasoning in `turn`, if any: its length in characters, and its last
+/// line cut to the last [`ENDING_CHARS`] (marked `…` when cut).
+fn reasoned(turn: &AssistantTurn) -> Option<(usize, String)> {
+    let reasoning: String = turn
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            Part::Thinking(thought) => Some(thought.as_str()),
+            _ => None,
+        })
+        .collect();
+    let last = reasoning
+        .lines()
+        .map(str::trim)
+        .rfind(|line| !line.is_empty())?;
+    let count = last.chars().count();
+    let ending = if count > ENDING_CHARS {
+        let kept: String = last.chars().skip(count - ENDING_CHARS).collect();
+        format!("…{kept}")
+    } else {
+        last.to_owned()
+    };
+    Some((reasoning.chars().count(), ending))
 }
 
 /// Fetch every live block (framework `refresh`), one at a time in layout

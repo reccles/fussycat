@@ -122,7 +122,8 @@ stdout and an exit code; the core never prints.
 
 **An answer** is a reply the model ended itself, with no tool calls and text
 that isn't just whitespace. Anything else fails the run, after the turn is
-reported (it was paid for): an empty reply, a reply cut off at the output
+reported (it was paid for): an empty reply (one that only reasoned says
+so, quoting how its reasoning ended), a reply cut off at the output
 limit (part of an answer isn't one, so none is printed), tool calls cut off
 (none run), or a provider's refusal. So `fussycat ... > report.md && publish`
 never publishes half a report.

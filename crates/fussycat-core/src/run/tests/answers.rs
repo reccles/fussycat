@@ -13,7 +13,7 @@ fn thinks(thought: &str) -> AssistantTurn {
 
 #[test]
 fn an_empty_reply_is_not_an_answer() {
-    for reply in [says(""), says(" \n\t"), thinks("I could say noon.")] {
+    for reply in [says(""), says(" \n\t"), thinks(" \n")] {
         let agent = agent(CountingSource::default(), now_tool(), 5);
         let provider = FakeProvider::new(move |_| Ok(reply.clone()));
 
@@ -27,6 +27,42 @@ fn an_empty_reply_is_not_an_answer() {
         assert_eq!(reporter.turns.len(), 1, "the turn was paid for: reported");
         assert_eq!(provider.requests().len(), 1, "and the run stops there");
     }
+}
+
+/// A model that reasoned and wrote nothing stopped mid-thought: the
+/// error says so, with how much it reasoned and how the reasoning ended,
+/// so the author can tell it from a provider that sent nothing.
+#[test]
+fn reasoning_with_no_reply_says_the_model_reasoned() {
+    let agent = agent(CountingSource::default(), now_tool(), 5);
+    let provider =
+        FakeProvider::new(|_| Ok(thinks("The user wants the time.\nI could say noon.\n")));
+
+    let (outcome, _) = run(&agent, &provider);
+
+    assert_eq!(
+        outcome_text(&outcome),
+        "the model gave no answer: on turn 1 it reasoned (43 characters, ending \
+         \"I could say noon.\") but wrote no reply; another reasoning effort may get one"
+    );
+}
+
+/// However long the reasoning, the error quotes only the end of its last
+/// line.
+#[test]
+fn a_long_reasoning_is_quoted_by_its_end() {
+    let thought = format!("{}the end.", "word ".repeat(1000));
+    let agent = agent(CountingSource::default(), now_tool(), 5);
+    let provider = FakeProvider::new(move |_| Ok(thinks(&thought)));
+
+    let (outcome, _) = run(&agent, &provider);
+
+    let Outcome::Failed(Failure::OnlyReasoned { chars, ending, .. }) = outcome else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(chars, 5008);
+    assert_eq!(ending.chars().count(), ENDING_CHARS + 1, "{ending}");
+    assert!(ending.starts_with('…') && ending.ends_with("word the end."));
 }
 
 #[test]
