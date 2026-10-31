@@ -74,4 +74,5 @@ unset:
 A key command, never a key: fussycat runs it and reads the key from its
 pipe, so the key is never in argv, the environment or a file.
 
-Lint with `shellcheck examples/*.sh` (`examples/.shellcheckrc` applies).
+Lint with `shellcheck -x examples/*.sh examples/tools/pigglywiggly`
+(`examples/.shellcheckrc` applies); CI runs the same check.

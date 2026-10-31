@@ -30,6 +30,8 @@ asked: they spend real money.
 - Your machine stays out of the repo: hosts, URLs and key commands belong in
   your shell's environment, never in a tracked file.
 - No source file over 600 lines; split along real seams.
+- A change to a flag, a file format or an exit code updates
+  `skills/fussycat/SKILL.md` too: coding agents learn fussycat from it.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:46cd31e7 -->
 ## Beads Issue Tracker

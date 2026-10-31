@@ -1,0 +1,93 @@
+# Builds fussycat's binaries and publishes them as a GitHub release when a
+# version tag (v0.1.0) is pushed. Run it by hand (workflow_dispatch) to build
+# the same archives as a dry run: they're kept as the run's artifacts, and
+# nothing is published.
+#
+# Each target builds natively on its own runner: aws-lc-sys compiles C, and a
+# native musl-gcc is simpler than a cross toolchain. The Linux builds are
+# musl, so they're static and run on any distro.
+# Toolchain and actions are pinned like ci.yml: bump the SHA and the comment.
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUST: 1.99.1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: toolchain
+        run: |
+          rustup toolchain install "$RUST" --profile minimal --target ${{ matrix.target }}
+          rustup default "$RUST"
+      # A tag that disagrees with Cargo.toml would ship a binary whose
+      # --version names another release.
+      - name: tag matches version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "fussycat") | .version')
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, but Cargo.toml says $version" >&2; exit 1; }
+      - name: musl
+        if: endsWith(matrix.target, '-musl')
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+      - name: build
+        run: cargo build --release --locked -p fussycat --target ${{ matrix.target }}
+      # The archive is named for the tag, or the commit on a dry run.
+      - name: package
+        shell: bash
+        run: |
+          ref=$GITHUB_REF_NAME
+          [ "$GITHUB_REF_TYPE" = tag ] || ref=${GITHUB_SHA::12}
+          name="fussycat-$ref-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/fussycat" LICENSE README.md "dist/$name/"
+          tar -czf "dist/$name.tar.gz" -C dist "$name"
+          (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
+  # Only a tag publishes, and only once every target has built.
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: checksums
+        run: cd dist && cat ./*.sha256 > SHA256SUMS && sha256sum -c SHA256SUMS
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
+            dist/*.tar.gz dist/SHA256SUMS
