@@ -1,53 +1,35 @@
 //! Ollama through rig-core's native `/api/chat` wire: the only route that
 //! takes model options and reports prompt-eval timings.
 
-use std::future::Future;
-
-use fussycat_core::provider::{Provider, ProviderError, Request, Response};
+use fussycat_core::provider::Request;
+use rig_core::completion::CompletionRequest;
 use rig_core::http_client::DynHttpClient;
 use rig_core::providers::ollama::{Chat, OllamaConfig};
+use serde_json::{Map, Value};
 
+use super::adapter::{Adapter, Dialect};
 use super::listing::{self, Listed};
-use super::messages::{from_rig, to_rig};
-use super::retry::{self, Policy};
+use super::retry::Policy;
 
-pub struct Ollama {
-    model: rig_core::Model<Chat>,
-    retry: Policy,
+/// Reads nothing from the reply: cost stays unknown, because Ollama reports
+/// none and its `-cloud` models are billed, so 0 would be a guess.
+struct Ollama;
+
+#[must_use]
+pub fn connect(base_url: &str, model: &str, retry: Policy) -> Adapter {
+    with_http(base_url, model, retry, super::http())
 }
 
-impl Ollama {
-    #[must_use]
-    pub fn new(base_url: &str, model: &str, retry: Policy) -> Self {
-        Self::with_http(base_url, model, retry, super::http())
-    }
-
-    fn with_http(base_url: &str, model: &str, retry: Policy, http: DynHttpClient) -> Self {
-        let client = OllamaConfig::new().with_base_url(base_url).connect(http);
-        Self {
-            model: client.native_completion(model),
-            retry,
-        }
-    }
+fn with_http(base_url: &str, model: &str, retry: Policy, http: DynHttpClient) -> Adapter {
+    let client = OllamaConfig::new().with_base_url(base_url).connect(http);
+    let model: rig_core::Model<Chat> = client.native_completion(model);
+    Adapter::new(model, retry, Ollama)
 }
 
-impl Provider for Ollama {
-    fn complete(
-        &self,
-        request: &Request,
-    ) -> impl Future<Output = Result<Response, ProviderError>> + Send {
-        let rig_request = to_rig(request).map(|mut rig_request| {
-            rig_request.additional_params = Some(never_truncate());
-            rig_request
-        });
-        async move {
-            let rig_request = rig_request?;
-            let (response, retries) =
-                retry::call(self.retry, || self.model.call(rig_request.clone())).await?;
-            // Cost stays unknown: Ollama reports none, and its `-cloud`
-            // models are billed, so 0 would be a guess.
-            from_rig(&response, retries)
-        }
+impl Dialect for Ollama {
+    fn request(&self, _request: &Request, mut rig: CompletionRequest) -> CompletionRequest {
+        rig.additional_params = Some(never_truncate(rig.additional_params.take()));
+        rig
     }
 }
 
@@ -59,8 +41,16 @@ impl Provider for Ollama {
 /// throws away every cached prefix (checked on Ollama 0.40.10). The only
 /// option that can go is `num_predict`, from `--max-output-tokens`: a limit
 /// on one reply, not a runner setting (not yet checked against a reload).
-fn never_truncate() -> serde_json::Value {
-    serde_json::json!({"truncate": false})
+///
+/// Added to `params`, so whatever else is there still goes. Anything but
+/// an object can't be merged into the body, so it's replaced.
+fn never_truncate(params: Option<Value>) -> Value {
+    let mut params = match params {
+        Some(Value::Object(params)) => params,
+        _ => Map::new(),
+    };
+    params.insert("truncate".into(), Value::Bool(false));
+    Value::Object(params)
 }
 
 /// The server's models, from `/api/tags`: it reports each model's context

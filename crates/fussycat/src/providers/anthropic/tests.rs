@@ -6,7 +6,7 @@ use crate::providers::testkit::{
     NO_RETRIES, assert_golden, assert_wire_contract, capped_at, first_turn, messages_view,
     paid_key, reasoning_at, second_turn, wire_bytes, with_live,
 };
-use fussycat_core::provider::Reasoning;
+use fussycat_core::provider::{Provider, Reasoning};
 
 /// The paid tests' model: the cheapest.
 const TEST_MODEL: &str = "claude-haiku-5-5";
@@ -17,7 +17,7 @@ fn wire(request: &Request) -> rig_core::http_client::Bytes {
 
 fn wire_for(model: &str, request: &Request) -> rig_core::http_client::Bytes {
     wire_bytes(
-        |http| Anthropic::with_http("not-a-real-key".into(), model, NO_RETRIES, http),
+        |http| with_http("not-a-real-key".into(), model, NO_RETRIES, http),
         request,
     )
 }
@@ -157,7 +157,7 @@ fn the_listing_keeps_the_context_window() {
 #[test]
 #[ignore = "paid: calls the Anthropic API"]
 fn paid_the_prefix_is_written_then_read_from_the_cache() {
-    let anthropic = Anthropic::new(
+    let anthropic = connect(
         paid_key(ProviderName::Anthropic),
         TEST_MODEL,
         Policy::default(),

@@ -1,5 +1,6 @@
 //! Provider adapters: the only place the LLM library is used (eval S8).
 
+mod adapter;
 mod anthropic;
 mod failure;
 mod listing;
@@ -13,14 +14,11 @@ mod venice;
 use std::str::FromStr;
 use std::time::Duration;
 
-use fussycat_core::provider::{Provider, ProviderError, Request, Response};
 use rig_core::http_client::DynHttpClient;
 
-pub use anthropic::Anthropic;
+pub use adapter::Adapter;
 pub use listing::Listed;
-pub use ollama::Ollama;
 pub use retry::Policy as RetryPolicy;
-pub use venice::Venice;
 
 fn http() -> DynHttpClient {
     DynHttpClient::new(rig_reqwest::ReqwestClient::from(client()))
@@ -62,17 +60,46 @@ pub enum ProviderName {
     Venice,
 }
 
+/// What fussycat knows about a provider before calling it.
+struct Facts {
+    /// As spelled in `--model PROVIDER:NAME` and `--list-models`.
+    name: &'static str,
+    /// Whether every response says what it cost, so `--max-cost` can be
+    /// kept. Ollama runs on your own hardware and reports no price;
+    /// Anthropic reports tokens, not dollars.
+    reports_cost: bool,
+    /// The environment variable holding the command that prints the API
+    /// key, if it needs one. The variable holds the command, never the key.
+    key_command_env: Option<&'static str>,
+}
+
 impl ProviderName {
     const ALL: [Self; 3] = [Self::Anthropic, Self::Ollama, Self::Venice];
+
+    const fn facts(self) -> Facts {
+        match self {
+            Self::Anthropic => Facts {
+                name: "anthropic",
+                reports_cost: false,
+                key_command_env: Some("FUSSYCAT_ANTHROPIC_KEY_COMMAND"),
+            },
+            Self::Ollama => Facts {
+                name: "ollama",
+                reports_cost: false,
+                key_command_env: None,
+            },
+            Self::Venice => Facts {
+                name: "venice",
+                reports_cost: true,
+                key_command_env: Some("FUSSYCAT_VENICE_KEY_COMMAND"),
+            },
+        }
+    }
 
     /// As spelled in `--model PROVIDER:NAME` and `--list-models`.
     #[must_use]
     pub fn name(self) -> &'static str {
-        match self {
-            Self::Anthropic => "anthropic",
-            Self::Ollama => "ollama",
-            Self::Venice => "venice",
-        }
+        self.facts().name
     }
 
     fn known() -> String {
@@ -80,26 +107,17 @@ impl ProviderName {
     }
 
     /// Whether every response says what it cost, so `--max-cost` can be
-    /// kept. Ollama runs on your own hardware and reports no price;
-    /// Anthropic reports tokens, not dollars.
+    /// kept.
     #[must_use]
     pub fn reports_cost(self) -> bool {
-        match self {
-            Self::Anthropic | Self::Ollama => false,
-            Self::Venice => true,
-        }
+        self.facts().reports_cost
     }
 
     /// The environment variable holding the command that prints this
-    /// provider's API key, if it needs one. The variable
-    /// holds the command, never the key.
+    /// provider's API key, if it needs one.
     #[must_use]
     pub fn key_command_env(self) -> Option<&'static str> {
-        match self {
-            Self::Anthropic => Some("FUSSYCAT_ANTHROPIC_KEY_COMMAND"),
-            Self::Ollama => None,
-            Self::Venice => Some("FUSSYCAT_VENICE_KEY_COMMAND"),
-        }
+        self.facts().key_command_env
     }
 
     /// Why `who` (this provider, or one of its models) can't go on without
@@ -189,44 +207,21 @@ impl std::fmt::Display for ModelRef {
 
 impl ModelRef {
     /// The provider for this model, with the `key` its
-    /// [`key_command`](ProviderName::key_command_env) printed. A missing key
-    /// is a usage error, found before any model call.
+    /// [`key_command`](ProviderName::key_command_env) printed (which never
+    /// prints an empty one). A missing key is a usage error, found before
+    /// any model call.
     pub fn connect(
         &self,
         ollama_url: &str,
         key: Option<String>,
         retry: RetryPolicy,
-    ) -> Result<AnyProvider, String> {
-        let key = || {
-            key.filter(|key| !key.trim().is_empty())
-                .ok_or_else(|| self.provider.needs_a_key(self))
-        };
+    ) -> Result<Adapter, String> {
+        let key = || key.ok_or_else(|| self.provider.needs_a_key(self));
         Ok(match self.provider {
-            ProviderName::Anthropic => {
-                AnyProvider::Anthropic(Box::new(Anthropic::new(key()?, &self.name, retry)))
-            }
-            ProviderName::Ollama => AnyProvider::Ollama(Ollama::new(ollama_url, &self.name, retry)),
-            ProviderName::Venice => {
-                AnyProvider::Venice(Box::new(Venice::new(key()?, &self.name, retry)))
-            }
+            ProviderName::Anthropic => anthropic::connect(key()?, &self.name, retry),
+            ProviderName::Ollama => ollama::connect(ollama_url, &self.name, retry),
+            ProviderName::Venice => venice::connect(key()?, &self.name, retry),
         })
-    }
-}
-
-/// The provider chosen on the command line.
-pub enum AnyProvider {
-    Anthropic(Box<Anthropic>),
-    Ollama(Ollama),
-    Venice(Box<Venice>),
-}
-
-impl Provider for AnyProvider {
-    async fn complete(&self, request: &Request) -> Result<Response, ProviderError> {
-        match self {
-            Self::Anthropic(anthropic) => anthropic.complete(request).await,
-            Self::Ollama(ollama) => ollama.complete(request).await,
-            Self::Venice(venice) => venice.complete(request).await,
-        }
     }
 }
 
@@ -275,14 +270,12 @@ mod tests {
     #[test]
     fn venice_without_a_key_is_refused_before_any_call() {
         let venice: ModelRef = "venice:claude-haiku-5-5".parse().unwrap();
-        for key in [None, Some(String::new())] {
-            let Err(error) = venice.connect("http://unused", key, RetryPolicy::default()) else {
-                panic!("connected without a key");
-            };
-            assert!(
-                error.starts_with("venice:claude-haiku-5-5 needs FUSSYCAT_VENICE_KEY_COMMAND set"),
-                "{error}"
-            );
-        }
+        let Err(error) = venice.connect("http://unused", None, RetryPolicy::default()) else {
+            panic!("connected without a key");
+        };
+        assert!(
+            error.starts_with("venice:claude-haiku-5-5 needs FUSSYCAT_VENICE_KEY_COMMAND set"),
+            "{error}"
+        );
     }
 }

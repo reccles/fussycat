@@ -4,44 +4,38 @@
 //! markers (A1). It reports cache writes as well as reads, but no cost.
 //! Paid: its live tests are `#[ignore = "paid"]`, and run only on purpose.
 
-use std::future::Future;
-
-use fussycat_core::provider::{Provider, ProviderError, Request, Response};
+use fussycat_core::provider::Request;
+use rig_core::completion::CompletionRequest;
 use rig_core::http_client::DynHttpClient;
 use rig_core::providers::anthropic::completion::ANTHROPIC_VERSION_LATEST;
 use rig_core::providers::anthropic::{ANTHROPIC, AnthropicConfig, Messages};
 
+use super::adapter::{Adapter, Dialect};
 use super::listing::{self, Listed};
-use super::messages::{from_rig, to_rig};
-use super::retry::{self, Policy};
+use super::retry::Policy;
 
 /// The most a request asks for unless `--max-output-tokens` says otherwise:
 /// what fussycat has always sent, and rig's own default for a model its
 /// catalog doesn't list yet.
 const MAX_TOKENS: u64 = 64_000;
 
-pub struct Anthropic {
-    model: rig_core::Model<Messages>,
-    retry: Policy,
+struct Anthropic {
     /// `max_tokens` for a request whose budget sets none.
     default_max_tokens: u64,
 }
 
-impl Anthropic {
-    #[must_use]
-    pub fn new(api_key: String, model: &str, retry: Policy) -> Self {
-        Self::with_http(api_key, model, retry, super::http())
-    }
+#[must_use]
+pub fn connect(api_key: String, model: &str, retry: Policy) -> Adapter {
+    with_http(api_key, model, retry, super::http())
+}
 
-    fn with_http(api_key: String, model: &str, retry: Policy, http: DynHttpClient) -> Self {
-        let config = AnthropicConfig::with_key(&ANTHROPIC, api_key);
-        let default_max_tokens = default_max_tokens(config.completion(model).default_max_tokens);
-        Self {
-            model: config.connect(http).completion(model),
-            retry,
-            default_max_tokens,
-        }
-    }
+fn with_http(api_key: String, model: &str, retry: Policy, http: DynHttpClient) -> Adapter {
+    let config = AnthropicConfig::with_key(&ANTHROPIC, api_key);
+    let dialect = Anthropic {
+        default_max_tokens: default_max_tokens(config.completion(model).default_max_tokens),
+    };
+    let model: rig_core::Model<Messages> = config.connect(http).completion(model);
+    Adapter::new(model, retry, dialect)
 }
 
 /// Anthropic requires `max_tokens`, and a model rejects one over its output
@@ -52,23 +46,10 @@ fn default_max_tokens(listed: Option<u64>) -> u64 {
     listed.map_or(MAX_TOKENS, |limit| limit.min(MAX_TOKENS))
 }
 
-impl Provider for Anthropic {
-    fn complete(
-        &self,
-        request: &Request,
-    ) -> impl Future<Output = Result<Response, ProviderError>> + Send {
-        let rig_request = to_rig(request).map(|mut rig_request| {
-            rig_request
-                .max_tokens
-                .get_or_insert(self.default_max_tokens);
-            rig_request
-        });
-        async move {
-            let rig_request = rig_request?;
-            let (response, retries) =
-                retry::call(self.retry, || self.model.call(rig_request.clone())).await?;
-            from_rig(&response, retries)
-        }
+impl Dialect for Anthropic {
+    fn request(&self, _request: &Request, mut rig: CompletionRequest) -> CompletionRequest {
+        rig.max_tokens.get_or_insert(self.default_max_tokens);
+        rig
     }
 }
 

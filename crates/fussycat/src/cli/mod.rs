@@ -16,7 +16,7 @@ use fussycat_core::quilt::{BlockDecl, BlockName, Kind, Source, Text};
 use fussycat_core::run::{Outcome, execute};
 use fussycat_core::toolbox::{Tool, Toolbox};
 
-use crate::providers::{AnyProvider, ModelRef, ProviderName, RetryPolicy};
+use crate::providers::{Adapter, ModelRef, ProviderName, RetryPolicy};
 use crate::reporters::{JsonlReporter, Reporters, StderrReporter, Verbosity, warn};
 use crate::system::{
     CommandSource, FileSource, Limits, ShellTool, ShellToolError, SystemClock, ToolFile,
@@ -258,7 +258,7 @@ impl From<ToolFileError> for Refused {
 }
 
 /// A run, ready to execute.
-type Prepared = (Agent, Task, AnyProvider, Reporters);
+type Prepared = (Agent, Task, Adapter, Reporters);
 
 /// Everything that can be wrong before any model call, cheapest first: the
 /// arguments, then the task on `stdin` (`None` when it's a terminal), and
