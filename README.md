@@ -65,6 +65,9 @@ echo "What time is it in UTC?" | fussycat \
   views of its state.
 - [Examples](examples/README.md): runnable scripts, one feature at a time,
   from a first question to a sandboxed run.
+- [A skill for coding agents](skills/fussycat/SKILL.md): copy it into your
+  agent's skills folder (`~/.claude/skills/fussycat/`, say) and it can write
+  and debug fussycat scripts for you.
 - [The Agent Quilt pattern](docs/agent-quilt.md) behind it, and
   [the framework](docs/agent-quilt-framework.md) it implements.
 - [Why it exists](context/INTENT.md), [the domain model](context/domain-design.spec.md)
