@@ -150,7 +150,7 @@ struct Input {
 
 impl Input {
     fn compile(name: &str, decl: &InputDecl) -> Result<Self, Problem> {
-        if !is_input_name(name) {
+        if !is_identifier(name) {
             return invalid(format!(
                 "[input.{name}]: an input name is a letter or `_`, then letters, digits or `_`"
             ));
@@ -272,7 +272,7 @@ impl ToolFile {
                 decl.name
             ));
         }
-        if let Some(bad) = decl.env.iter().find(|name| !is_env_name(name)) {
+        if let Some(bad) = decl.env.iter().find(|name| !is_identifier(name)) {
             return invalid(format!(
                 "`env` entry `{bad}` must be a variable name: letters, digits and `_`, not starting with a digit"
             ));
@@ -420,10 +420,12 @@ fn arguments(run: &[String], inputs: &BTreeMap<String, InputDecl>) -> Result<Vec
 /// The input name in a `{name}` placeholder.
 fn placeholder(item: &str) -> Option<&str> {
     let name = item.strip_prefix('{')?.strip_suffix('}')?;
-    is_input_name(name).then_some(name)
+    is_identifier(name).then_some(name)
 }
 
-fn is_input_name(name: &str) -> bool {
+/// Letters, digits and `_`, not starting with a digit: an input name, and
+/// a portable environment variable name (POSIX).
+fn is_identifier(name: &str) -> bool {
     let mut chars = name.chars();
     chars
         .next()
@@ -496,15 +498,6 @@ fn rest_schema(run: &[String]) -> Value {
         "required": ["args"],
         "additionalProperties": false,
     })
-}
-
-/// A portable environment variable name (POSIX: letters, digits, `_`).
-fn is_env_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    chars
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// The author's description, then the program's help text.

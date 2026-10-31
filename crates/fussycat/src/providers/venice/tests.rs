@@ -7,14 +7,14 @@ use crate::providers::testkit::{
     reasoning_at, refusal, serve_once, wire_bytes,
 };
 use fussycat_core::log::Part;
-use fussycat_core::provider::Reasoning;
+use fussycat_core::provider::{Provider, Reasoning};
 
 /// The paid test's model: cheap, with priced cache reads.
 const TEST_MODEL: &str = "claude-haiku-5-5";
 
 fn wire(request: &Request) -> rig_core::http_client::Bytes {
     wire_bytes(
-        |http| Venice::with_http("not-a-real-key".into(), TEST_MODEL, NO_RETRIES, http),
+        |http| with_http("not-a-real-key".into(), TEST_MODEL, NO_RETRIES, http),
         request,
     )
 }
@@ -78,7 +78,7 @@ fn sends_reasoning_effort_only_when_asked() {
 /// xhigh, as `/models` lists): one it lacks fails unsent.
 #[test]
 fn a_level_the_model_lacks_is_refused_unsent() {
-    let qwen = |http| Venice::with_http("not-a-real-key".into(), "qwen-3-8-27b", NO_RETRIES, http);
+    let qwen = |http| with_http("not-a-real-key".into(), "qwen-3-8-27b", NO_RETRIES, http);
     let error = refusal(qwen, &reasoning_at(Reasoning::High));
     assert!(error.contains("no `high` effort level"), "{error}");
 }
@@ -128,15 +128,13 @@ fn thinking_reply(content: &str) -> Value {
     })
 }
 
-/// Venice at `url`, as [`Venice::new`] builds it.
-fn venice_at(url: &str) -> Venice {
+/// Venice at `url`, as [`connect`] builds it.
+fn venice_at(url: &str) -> Adapter {
     let client = OpenAIConfig::with_key(&VENICE, "not-a-real-key")
         .with_base_url(url)
         .connect(crate::providers::http());
-    Venice {
-        model: client.chat(TEST_MODEL),
-        retry: NO_RETRIES,
-    }
+    let model: rig_core::Model<Chat> = client.chat(TEST_MODEL);
+    Adapter::new(model, NO_RETRIES, Venice)
 }
 
 fn complete(reply: &Value) -> Response {
@@ -207,7 +205,7 @@ fn reasoning_is_replayed_on_the_next_turn() {
 #[ignore = "paid: calls the Venice API"]
 fn paid_a_real_call_reports_usage_and_cost() {
     let key = paid_key(crate::providers::ProviderName::Venice);
-    let venice = Venice::new(key, TEST_MODEL, Policy::default());
+    let venice = connect(key, TEST_MODEL, Policy::default());
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -258,7 +256,7 @@ fn the_listing_keeps_tool_support_and_prices() {
 #[ignore = "paid: calls the Venice API"]
 fn paid_every_stable_block_reaches_the_model() {
     let key = paid_key(crate::providers::ProviderName::Venice);
-    let venice = Venice::new(key, TEST_MODEL, Policy::default());
+    let venice = connect(key, TEST_MODEL, Policy::default());
     let block = |name: &str, content: &str| fussycat_core::quilt::Block {
         name: fussycat_core::quilt::BlockName::new(name).unwrap(),
         content: content.into(),

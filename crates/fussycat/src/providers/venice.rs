@@ -1,55 +1,38 @@
 //! Venice through rig-core's `venice` dialect of `OpenAI` Chat Completions.
 //! Paid: its live test is `#[ignore = "paid"]`, and runs only on purpose.
 
-use std::future::Future;
-
-use fussycat_core::provider::{Provider, ProviderError, Request, Response};
+use fussycat_core::provider::{Request, Response};
 use fussycat_core::report::prefix_key;
-use rig_core::completion::CompletionResponse;
+use rig_core::completion::{CompletionRequest, CompletionResponse};
 use rig_core::http_client::DynHttpClient;
 use rig_core::providers::openai::OpenAIConfig;
 use rig_core::providers::openai::wire::{Chat, VENICE};
 use rig_core::providers::venice::extension::{VeniceExt, VeniceOptions};
 
+use super::adapter::{Adapter, Dialect};
 use super::listing::{self, Listed, Price};
-use super::messages::{from_rig, to_rig};
-use super::retry::{self, Policy};
+use super::retry::Policy;
 
-pub struct Venice {
-    model: rig_core::Model<Chat>,
-    retry: Policy,
+struct Venice;
+
+#[must_use]
+pub fn connect(api_key: String, model: &str, retry: Policy) -> Adapter {
+    with_http(api_key, model, retry, super::http())
 }
 
-impl Venice {
-    #[must_use]
-    pub fn new(api_key: String, model: &str, retry: Policy) -> Self {
-        Self::with_http(api_key, model, retry, super::http())
-    }
-
-    fn with_http(api_key: String, model: &str, retry: Policy, http: DynHttpClient) -> Self {
-        let client = OpenAIConfig::with_key(&VENICE, api_key).connect(http);
-        Self {
-            model: client.chat(model),
-            retry,
-        }
-    }
+fn with_http(api_key: String, model: &str, retry: Policy, http: DynHttpClient) -> Adapter {
+    let client = OpenAIConfig::with_key(&VENICE, api_key).connect(http);
+    let model: rig_core::Model<Chat> = client.chat(model);
+    Adapter::new(model, retry, Venice)
 }
 
-impl Provider for Venice {
-    fn complete(
-        &self,
-        request: &Request,
-    ) -> impl Future<Output = Result<Response, ProviderError>> + Send {
-        let rig_request =
-            to_rig(request).map(|rig_request| rig_request.provider_option(options(request)));
-        async move {
-            let rig_request = rig_request?;
-            let (response, retries) =
-                retry::call(self.retry, || self.model.call(rig_request.clone())).await?;
-            let mut neutral = from_rig(&response, retries)?;
-            neutral.usage.cost_usd = reported_cost(&response);
-            Ok(neutral)
-        }
+impl Dialect for Venice {
+    fn request(&self, request: &Request, rig: CompletionRequest) -> CompletionRequest {
+        rig.provider_option(options(request))
+    }
+
+    fn response(&self, rig: &CompletionResponse, neutral: &mut Response) {
+        neutral.usage.cost_usd = reported_cost(rig);
     }
 }
 
