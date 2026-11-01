@@ -3,7 +3,7 @@ members = ["crates/fussycat-core", "crates/fussycat-providers", "crates/fussycat
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 # rig-core 0.45 needs 1.97.1; keep this in step with it.
 rust-version = "1.97.1"

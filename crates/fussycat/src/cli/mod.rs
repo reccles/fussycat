@@ -241,9 +241,9 @@ pub struct Mechanisms {
 /// or tools it doesn't have, a model invents calls to them.
 #[must_use]
 pub fn core_prompt(has: Mechanisms) -> String {
-    const GENERAL: &str = include_str!("core.md");
-    const LIVE: &str = include_str!("core-live.md");
-    const TOOLS: &str = include_str!("core-tools.md");
+    const GENERAL: &str = include_str!("prompt/core.md");
+    const LIVE: &str = include_str!("prompt/live.md");
+    const TOOLS: &str = include_str!("prompt/tools.md");
     let mut prompt = GENERAL.to_owned();
     if has.live {
         prompt.push_str(LIVE);
